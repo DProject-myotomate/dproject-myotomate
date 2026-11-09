@@ -41,94 +41,219 @@ export default function App() {
     }
   });
 
-  // Candidate Profile State with localStorage persistence
-  const [candidate, setCandidate] = useState<CandidateProfile>(() => {
-    try {
-      const saved = localStorage.getItem('autolamar_candidate');
-      return saved ? JSON.parse(saved) : DEFAULT_CANDIDATES[0];
-    } catch {
-      return DEFAULT_CANDIDATES[0];
-    }
+  // Helper to construct user-scoped storage key
+  const getUserKey = (prefix: string, userId: string) => `${prefix}_${userId}`;
+
+  // Helper to create clean profile without attached CV
+  const createEmptyCandidate = (id = 'guest', name = '', email = ''): CandidateProfile => ({
+    id,
+    fullName: name,
+    email,
+    phone: '',
+    location: '',
+    primaryRole: '',
+    experienceYears: 0,
+    expectedSalary: '',
+    availability: '',
+    linkedin: '',
+    github: '',
+    portfolio: '',
+    summary: '',
+    skills: [],
+    experience: [],
+    education: [],
+    resumeFileName: undefined,
+    resumeFileSize: undefined,
   });
+
+  // Helper to load complete isolated data for a specific user
+  const getStoredUserData = (userId: string, explicitProfile?: CandidateProfile) => {
+    // 1. Candidate Profile
+    let userCandidate: CandidateProfile | null = null;
+    try {
+      const saved = localStorage.getItem(getUserKey('autolamar_candidate', userId));
+      if (saved) {
+        userCandidate = JSON.parse(saved);
+      } else if (explicitProfile) {
+        userCandidate = explicitProfile;
+      } else if (userId === 'user-siti') {
+        userCandidate = DEFAULT_CANDIDATES[1];
+      } else if (userId === 'user-dimas') {
+        const oldGlobal = localStorage.getItem('autolamar_candidate');
+        userCandidate = oldGlobal ? JSON.parse(oldGlobal) : DEFAULT_CANDIDATES[0];
+      } else {
+        const accountsStr = localStorage.getItem('autolamar_accounts_db');
+        if (accountsStr) {
+          const accounts = JSON.parse(accountsStr);
+          const matched = accounts.find((a: any) => a.user?.id === userId);
+          if (matched?.candidateProfile) {
+            userCandidate = matched.candidateProfile;
+          }
+        }
+      }
+    } catch {}
+
+    if (!userCandidate) {
+      let userName = '';
+      let userEmail = '';
+      try {
+        const accountsStr = localStorage.getItem('autolamar_accounts_db');
+        if (accountsStr) {
+          const accounts = JSON.parse(accountsStr);
+          const matched = accounts.find((a: any) => a.user?.id === userId);
+          if (matched?.user) {
+            userName = matched.user.name;
+            userEmail = matched.user.email;
+          }
+        }
+      } catch {}
+
+      userCandidate = createEmptyCandidate(userId, userName, userEmail);
+    }
+
+    // Never auto-attach a CV. A CV is only attached when the user has manually uploaded it.
+    if (userCandidate) {
+      const hasManuallyUploaded = localStorage.getItem(`autolamar_manual_cv_${userId}`) === 'true';
+      if (!hasManuallyUploaded) {
+        userCandidate.resumeFileName = undefined;
+        userCandidate.resumeFileSize = undefined;
+      }
+    }
+
+    // 2. Applications Tracker
+    let userApplications: ApplicationRecord[] = [];
+    try {
+      const saved = localStorage.getItem(getUserKey('autolamar_applications', userId));
+      if (saved) {
+        userApplications = JSON.parse(saved);
+      } else if (userId === 'user-dimas') {
+        userApplications = [
+          {
+            id: 'app-init-1',
+            trackingId: 'APP-GOTO-9921',
+            jobId: 'job-1',
+            jobTitle: 'Senior Frontend Engineer (React & TypeScript)',
+            company: 'GoTo Financial',
+            location: 'Jakarta Selatan (Hybrid)',
+            hrEmail: 'talent-acquisition@gotofinancial.com',
+            appliedAt: 'Kemarin, 14:20',
+            status: 'Ditinjau HR',
+            matchScore: 94,
+            coverLetter: 'Yth. Tim Rekrutmen & HRD GoTo Financial,\n\nDengan hormat, sehubungan dengan informasi lowongan posisi Senior Frontend Engineer...',
+            screeningAnswers: [
+              {
+                question: 'Berapa lama pengalaman Anda menggunakan TypeScript dalam skala aplikasi produksi?',
+                answer: '4+ tahun secara intensif di environment e-commerce ber-traffic tinggi.',
+              },
+            ],
+            deliveryMethod: 'direct_email',
+          },
+        ];
+      } else if (userId === 'user-siti') {
+        userApplications = [
+          {
+            id: 'app-siti-1',
+            trackingId: 'APP-TRVK-8812',
+            jobId: 'job-siti-1',
+            jobTitle: 'Product Manager / Owner',
+            company: 'Traveloka',
+            location: 'Tangerang (Hybrid)',
+            hrEmail: 'talent-acquisition@traveloka.com',
+            appliedAt: '2 hari lalu, 10:15',
+            status: 'Wawancara',
+            matchScore: 96,
+            coverLetter: 'Yth. Tim Rekrutmen & HRD Traveloka,\n\nDengan hormat, sehubungan dengan lowongan posisi Product Manager...',
+            screeningAnswers: [
+              {
+                question: 'Berapa tahun pengalaman Anda memimpin product discovery?',
+                answer: '3+ tahun memimpin roadmapping dan validasi hipotesis fitur produk.',
+              },
+            ],
+            deliveryMethod: 'direct_email',
+          },
+        ];
+      } else {
+        userApplications = [];
+      }
+    } catch {
+      userApplications = [];
+    }
+
+    // 3. Queue
+    let userQueue: QueueItem[] = [];
+    try {
+      const saved = localStorage.getItem(getUserKey('autolamar_queue', userId));
+      if (saved) {
+        userQueue = JSON.parse(saved);
+      }
+    } catch {}
+
+    // 4. Jobs
+    let userJobs: Job[] = INITIAL_JOBS;
+    try {
+      const saved = localStorage.getItem(getUserKey('autolamar_jobs', userId));
+      if (saved) {
+        userJobs = JSON.parse(saved);
+      }
+    } catch {}
+
+    // 5. Automation Config
+    let userConfig: AutoApplyConfig = {
+      delaySeconds: 2,
+      language: 'id',
+      tone: 'impactful',
+      autoAnswerQuestions: true,
+      attachPortfolio: true,
+      autoEmailDispatch: true,
+    };
+    try {
+      const saved = localStorage.getItem(getUserKey('autolamar_config', userId));
+      if (saved) {
+        userConfig = JSON.parse(saved);
+      }
+    } catch {}
+
+    return {
+      candidate: userCandidate,
+      applications: userApplications,
+      queue: userQueue,
+      jobs: userJobs,
+      config: userConfig,
+    };
+  };
+
+  // Initial user data retrieval
+  const initialUserData = currentUser
+    ? getStoredUserData(currentUser.id)
+    : {
+        candidate: createEmptyCandidate(),
+        applications: [],
+        queue: [],
+        jobs: INITIAL_JOBS,
+        config: {
+          delaySeconds: 2,
+          language: 'id' as const,
+          tone: 'impactful' as const,
+          autoAnswerQuestions: true,
+          attachPortfolio: true,
+          autoEmailDispatch: true,
+        },
+      };
+
+  // Candidate Profile State
+  const [candidate, setCandidate] = useState<CandidateProfile>(initialUserData.candidate);
 
   // Jobs state
-  const [jobs, setJobs] = useState<Job[]>(() => {
-    try {
-      const saved = localStorage.getItem('autolamar_jobs');
-      return saved ? JSON.parse(saved) : INITIAL_JOBS;
-    } catch {
-      return INITIAL_JOBS;
-    }
-  });
+  const [jobs, setJobs] = useState<Job[]>(initialUserData.jobs);
 
   // Queue state
-  const [queue, setQueue] = useState<QueueItem[]>(() => {
-    try {
-      const saved = localStorage.getItem('autolamar_queue');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [queue, setQueue] = useState<QueueItem[]>(initialUserData.queue);
 
   // Applications Tracker state
-  const [applications, setApplications] = useState<ApplicationRecord[]>(() => {
-    try {
-      const saved = localStorage.getItem('autolamar_applications');
-      if (saved) return JSON.parse(saved);
-      // Default 1 realistic seed application
-      return [
-        {
-          id: 'app-init-1',
-          trackingId: 'APP-GOTO-9921',
-          jobId: 'job-1',
-          jobTitle: 'Senior Frontend Engineer (React & TypeScript)',
-          company: 'GoTo Financial',
-          location: 'Jakarta Selatan (Hybrid)',
-          hrEmail: 'talent-acquisition@gotofinancial.com',
-          appliedAt: 'Kemarin, 14:20',
-          status: 'Ditinjau HR',
-          matchScore: 94,
-          coverLetter: 'Yth. Tim Rekrutmen & HRD GoTo Financial,\n\nDengan hormat, sehubungan dengan informasi lowongan posisi Senior Frontend Engineer...',
-          screeningAnswers: [
-            {
-              question: 'Berapa lama pengalaman Anda menggunakan TypeScript dalam skala aplikasi produksi?',
-              answer: '4+ tahun secara intensif di environment e-commerce ber-traffic tinggi.',
-            },
-          ],
-          deliveryMethod: 'direct_email',
-        },
-      ];
-    } catch {
-      return [];
-    }
-  });
+  const [applications, setApplications] = useState<ApplicationRecord[]>(initialUserData.applications);
 
-  // Automation Settings with localStorage persistence
-  const [config, setConfig] = useState<AutoApplyConfig>(() => {
-    try {
-      const saved = localStorage.getItem('autolamar_config');
-      return saved
-        ? JSON.parse(saved)
-        : {
-            delaySeconds: 2,
-            language: 'id',
-            tone: 'impactful',
-            autoAnswerQuestions: true,
-            attachPortfolio: true,
-            autoEmailDispatch: true,
-          };
-    } catch {
-      return {
-        delaySeconds: 2,
-        language: 'id',
-        tone: 'impactful',
-        autoAnswerQuestions: true,
-        attachPortfolio: true,
-        autoEmailDispatch: true,
-      };
-    }
-  });
+  // Automation Settings
+  const [config, setConfig] = useState<AutoApplyConfig>(initialUserData.config);
 
   // Modals & Active Selections
   const [selectedJobForModal, setSelectedJobForModal] = useState<Job | null>(null);
@@ -152,26 +277,52 @@ export default function App() {
     }, 3500);
   };
 
-  // Sync state to LocalStorage
+  // Sync state to LocalStorage strictly scoped per user
   useEffect(() => {
-    localStorage.setItem('autolamar_candidate', JSON.stringify(candidate));
-  }, [candidate]);
+    if (!currentUser) return;
+    const userId = currentUser.id;
+    try {
+      localStorage.setItem(getUserKey('autolamar_candidate', userId), JSON.stringify(candidate));
+      // Also sync candidate profile back to accounts database if user is registered
+      const accountsStr = localStorage.getItem('autolamar_accounts_db');
+      if (accountsStr) {
+        const accounts = JSON.parse(accountsStr);
+        const idx = accounts.findIndex((a: any) => a.user?.id === userId);
+        if (idx !== -1) {
+          accounts[idx].candidateProfile = candidate;
+          localStorage.setItem('autolamar_accounts_db', JSON.stringify(accounts));
+        }
+      }
+    } catch {}
+  }, [candidate, currentUser]);
 
   useEffect(() => {
-    localStorage.setItem('autolamar_jobs', JSON.stringify(jobs));
-  }, [jobs]);
+    if (!currentUser) return;
+    try {
+      localStorage.setItem(getUserKey('autolamar_jobs', currentUser.id), JSON.stringify(jobs));
+    } catch {}
+  }, [jobs, currentUser]);
 
   useEffect(() => {
-    localStorage.setItem('autolamar_queue', JSON.stringify(queue));
-  }, [queue]);
+    if (!currentUser) return;
+    try {
+      localStorage.setItem(getUserKey('autolamar_queue', currentUser.id), JSON.stringify(queue));
+    } catch {}
+  }, [queue, currentUser]);
 
   useEffect(() => {
-    localStorage.setItem('autolamar_applications', JSON.stringify(applications));
-  }, [applications]);
+    if (!currentUser) return;
+    try {
+      localStorage.setItem(getUserKey('autolamar_applications', currentUser.id), JSON.stringify(applications));
+    } catch {}
+  }, [applications, currentUser]);
 
   useEffect(() => {
-    localStorage.setItem('autolamar_config', JSON.stringify(config));
-  }, [config]);
+    if (!currentUser) return;
+    try {
+      localStorage.setItem(getUserKey('autolamar_config', currentUser.id), JSON.stringify(config));
+    } catch {}
+  }, [config, currentUser]);
 
   useEffect(() => {
     if (currentUser) {
@@ -181,23 +332,37 @@ export default function App() {
     }
   }, [currentUser]);
 
-  // Handle Login & Register success
+  // Handle Login & Register success - immediately loads user's isolated data
   const handleLoginSuccess = (user: AuthUser, initialProfile?: CandidateProfile) => {
     setCurrentUser(user);
-    if (initialProfile) {
-      setCandidate(initialProfile);
-    }
+    const userData = getStoredUserData(user.id, initialProfile);
+    setCandidate(userData.candidate);
+    setApplications(userData.applications);
+    setQueue(userData.queue);
+    setJobs(userData.jobs);
+    setConfig(userData.config);
+    setActiveTab('jobs');
     showToast(`Selamat datang, ${user.name}!`);
-    confetti({
-      particleCount: 80,
-      spread: 70,
-      origin: { y: 0.6 },
-    });
   };
 
-  // Handle Logout - directly clears session and brings up login dashboard
+  // Handle Logout - resets in-memory data and returns to login screen
   const handleLogout = () => {
+    if (isProcessingQueue) {
+      stopRequestedRef.current = true;
+      setIsProcessingQueue(false);
+      setActiveProcessingId(null);
+    }
     setCurrentUser(null);
+    setSelectedJobForModal(null);
+    setIsCustomJobModalOpen(false);
+    setIsPortalSyncModalOpen(false);
+
+    // Reset state in memory so subsequent logins start with clean, isolated user state
+    setCandidate(createEmptyCandidate());
+    setApplications([]);
+    setQueue([]);
+    setJobs(INITIAL_JOBS);
+    setActiveTab('jobs');
     showToast('Anda telah keluar dari aplikasi.');
   };
 

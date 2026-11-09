@@ -296,6 +296,39 @@ function generateHeuristicProfile(fileName = '', fileText = ''): any {
     const email = emailMatch ? emailMatch[0] : `${cleanName.toLowerCase().replace(/\s+/g, '.')}@gmail.com`;
     const phone = phoneMatch ? phoneMatch[0] : '+62 812-9988-1234';
 
+    // Dynamic skill extraction from text
+    const knownSkills = [
+      'React', 'TypeScript', 'JavaScript', 'Node.js', 'Next.js', 'Vue.js', 'Angular',
+      'Python', 'Django', 'FastAPI', 'Java', 'Spring Boot', 'PHP', 'Laravel', 'Go', 'Golang',
+      'PostgreSQL', 'MySQL', 'MongoDB', 'Redis', 'Docker', 'Kubernetes', 'AWS', 'GCP', 'Azure',
+      'Tailwind CSS', 'Bootstrap', 'HTML5', 'CSS3', 'REST API', 'GraphQL', 'Git', 'CI/CD',
+      'Agile / Scrum', 'Figma', 'UI/UX', 'Product Management', 'Data Analysis', 'Pandas', 'SQL'
+    ];
+    const detectedSkills = knownSkills.filter((sk) =>
+      new RegExp(`\\b${sk.replace('+', '\\+').replace('.', '\\.')}\\b`, 'i').test(fileText)
+    );
+    const finalSkills = detectedSkills.length >= 4
+      ? detectedSkills
+      : Array.from(new Set([...detectedSkills, 'React', 'TypeScript', 'Node.js', 'Next.js', 'Tailwind CSS', 'PostgreSQL', 'Git', 'Agile / Scrum']));
+
+    // Dynamic education degree extraction
+    let degree = 'S1 Teknik Informatika / Ilmu Komputer';
+    let institution = 'Universitas Indonesia (UI)';
+    let gradYear = '2021';
+
+    if (/S2|Magister/i.test(fileText)) degree = 'S2 Magister Sistem Informasi';
+    else if (/S1|Sarjana|Bachelor/i.test(fileText)) degree = 'S1 Sistem Informasi / Teknik Informatika';
+    else if (/D3|Diploma/i.test(fileText)) degree = 'D3 Manajemen Informatika';
+
+    const uniMatch = fileText.match(/(Universitas|Institut|Politeknik|Sekolah Tinggi)\s+([A-Za-z\s]+)/i);
+    if (uniMatch && uniMatch[0].length < 45) {
+      institution = uniMatch[0].trim();
+    }
+    const yearMatch = fileText.match(/20(1[5-9]|2[0-6])/);
+    if (yearMatch) {
+      gradYear = yearMatch[0];
+    }
+
     return {
       fullName: cleanName,
       email,
@@ -303,17 +336,17 @@ function generateHeuristicProfile(fileName = '', fileText = ''): any {
       location: 'Jakarta Selatan, DKI Jakarta',
       primaryRole,
       experienceYears: 4,
-      expectedSalary: 'Rp 22.000.000 / bulan',
-      availability: 'Immediately (Siap bergabung segera)',
+      expectedSalary: 'Rp 18.000.000 - Rp 25.000.000',
+      availability: 'Immediately (Siap bergabung)',
       linkedin: `linkedin.com/in/${cleanName.toLowerCase().replace(/\s+/g, '-')}`,
       github: `github.com/${cleanName.toLowerCase().replace(/\s+/g, '')}`,
       portfolio: `${cleanName.toLowerCase().replace(/\s+/g, '')}.dev`,
-      summary: `${primaryRole} dengan rekam jejak terbukti membangun solusi digital berskala tinggi, arsitektur tangguh, dan performa tinggi sesuai standar ATS. Memiliki pengalaman kolaborasi erat dalam tim Agile.`,
-      skills: ['React', 'TypeScript', 'Node.js', 'Next.js', 'Tailwind CSS', 'PostgreSQL', 'Docker', 'REST API', 'Git', 'Agile / Scrum'],
+      summary: `${primaryRole} dengan rekam jejak terbukti membangun solusi digital berskala tinggi, performa tinggi sesuai standar ATS. Memiliki pemahaman mendalam dalam ${finalSkills.slice(0, 4).join(', ')}.`,
+      skills: finalSkills,
       experience: [
         {
           role: primaryRole,
-          company: 'PT Digital Karya Mandiri',
+          company: 'PT Digital Solusi Nusantara',
           period: '2022 - Sekarang (2+ Tahun)',
           description: 'Memimpin implementasi fitur core platform, mempercepat respon aplikasi hingga 35%, dan mengelola integrasi multi-portal secara modular.',
         },
@@ -326,9 +359,9 @@ function generateHeuristicProfile(fileName = '', fileText = ''): any {
       ],
       education: [
         {
-          degree: 'S1 Teknik Informatika',
-          institution: 'Universitas Indonesia (UI)',
-          graduationYear: '2020',
+          degree,
+          institution,
+          graduationYear: gradYear,
         },
       ],
     };
@@ -377,8 +410,10 @@ app.post('/api/ai/parse-resume', async (req, res) => {
 
     if (ai) {
       const contents: any[] = [];
+      const hasSubstantialText = Boolean(fileText && fileText.trim().length >= 50);
 
-      if (fileData) {
+      // Only attach heavy base64 inlineData if we do NOT have raw text extracted
+      if (!hasSubstantialText && fileData) {
         const base64Data = fileData.includes(';base64,') ? fileData.split(';base64,')[1] : fileData;
         const mime = fileType || (fileName?.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'application/pdf');
 
@@ -394,28 +429,28 @@ app.post('/api/ai/parse-resume', async (req, res) => {
 
       if (fileText && fileText.trim().length > 0) {
         contents.push({
-          text: `Teks dari berkas CV:\n${fileText.substring(0, 15000)}`,
+          text: `Teks dari berkas CV "${fileName || 'Resume'}":\n${fileText.substring(0, 16000)}`,
         });
       }
 
-      const prompt = `Anda adalah ahli ATS Resume Analyzer tingkat enterprise. Analisis dan ekstrak seluruh data dari Curriculum Vitae (CV) ini secara teliti untuk mengisi profil pelamar kerja.
-Nama file CV: "${fileName || 'Resume.pdf'}"
+      const prompt = `Ekstrak dan sinkronkan data Curriculum Vitae (CV) ini ke format profil kandidat ATS enterprise secepat dan seteliti mungkin.
+Nama file: "${fileName || 'Resume.pdf'}"
 
-Kembalikan output WAJIB HANYA DALAM FORMAT JSON MURNI yang valid dengan skema berikut:
+Kembalikan WAJIB HANYA JSON MURNI valid:
 {
   "fullName": string (Nama lengkap pelamar dari CV),
   "email": string (Email aktif pelamar),
   "phone": string (Nomor telepon / WhatsApp dengan kode negara),
-  "location": string (Domisili / Kota, contoh: "Jakarta Selatan, DKI Jakarta" atau "Surabaya, Jawa Timur"),
+  "location": string (Domisili / Kota, contoh: "Jakarta Selatan, DKI Jakarta" atau "Bandung, Jawa Barat"),
   "primaryRole": string (Judul profesi utama, contoh: "Senior Frontend Engineer" atau "Fullstack Developer"),
-  "experienceYears": number (Estimasi total pengalaman kerja dalam angka tahun, contoh: 4),
-  "expectedSalary": string (Ekspektasi gaji jika ada tertulis atau estimasi standar pasar, contoh: "Rp 20.000.000 - Rp 25.000.000"),
-  "availability": string (Ketersediaan, contoh: "Immediately" atau "1 Bulan Notice"),
-  "linkedin": string (Tautan atau username LinkedIn),
-  "github": string (Tautan atau username GitHub jika ada),
-  "portfolio": string (Tautan portofolio atau website pribadi jika ada),
-  "summary": string (Ringkasan profil profesional eksekutif 2-4 kalimat yang kaya kata kunci ATS),
-  "skills": string[] (Array string keterampilan teknis, tools, frameworks, dan keahlian yang ditemukan),
+  "experienceYears": number (Total tahun pengalaman kerja, contoh: 4),
+  "expectedSalary": string (Ekspektasi gaji, contoh: "Rp 18.000.000 - Rp 25.000.000"),
+  "availability": string (Ketersediaan, contoh: "Immediately" atau "1 Bulan"),
+  "linkedin": string (Tautan / username LinkedIn jika ada),
+  "github": string (Tautan / username GitHub jika ada),
+  "portfolio": string (Tautan website portofolio jika ada),
+  "summary": string (Ringkasan profil profesional eksekutif 2-4 kalimat yang kuat kata kunci ATS),
+  "skills": string[] (Array keterampilan teknis, tools, framework yang ditemukan),
   "experience": [
     {
       "role": string,
@@ -432,12 +467,10 @@ Kembalikan output WAJIB HANYA DALAM FORMAT JSON MURNI yang valid dengan skema be
     }
   ]
 }
-
-PENTING:
-- Ambil data asli dari CV sebisa mungkin.
-- Jika ada field yang tidak tertulis eksplisit di CV, isi dengan estimasi profesional yang realistis berdasarkan riwayat kerja.
-- Pastikan array skills memuat teknologi dan kompetensi penting.
-- Jangan gunakan markdown backticks, hanya JSON murni.`;
+Aturan:
+- Ambil data asli dari berkas sebisa mungkin.
+- Lengkapi seluruh field dengan estimasi profesional realistis jika tidak tertulis eksplisit.
+- Berikan daftar skills lengkap minimal 6-12 item relevan.`;
 
       contents.push({ text: prompt });
 
@@ -446,6 +479,7 @@ PENTING:
         contents,
         config: {
           responseMimeType: 'application/json',
+          thinkingConfig: { thinkingBudget: 0 },
         },
       });
 

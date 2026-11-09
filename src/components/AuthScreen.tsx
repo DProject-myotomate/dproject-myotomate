@@ -5,9 +5,7 @@ import {
   Eye,
   EyeOff,
   User,
-  Briefcase,
   ArrowRight,
-  Sparkles,
   ShieldCheck,
   CheckCircle2,
   AlertCircle,
@@ -39,7 +37,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess }) => {
   // Register form state
   const [regFullName, setRegFullName] = useState('');
   const [regEmail, setRegEmail] = useState('');
-  const [regRole, setRegRole] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regConfirmPassword, setRegConfirmPassword] = useState('');
   const [showRegPassword, setShowRegPassword] = useState(false);
@@ -55,7 +52,21 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess }) => {
     try {
       const data = localStorage.getItem(STORAGE_USERS_KEY);
       if (data) {
-        return JSON.parse(data);
+        const accounts: StoredAccount[] = JSON.parse(data);
+        return accounts.map((acc) => {
+          const hasManual = localStorage.getItem(`autolamar_manual_cv_${acc.user.id}`) === 'true';
+          if (!hasManual && acc.candidateProfile) {
+            return {
+              ...acc,
+              candidateProfile: {
+                ...acc.candidateProfile,
+                resumeFileName: undefined,
+                resumeFileSize: undefined,
+              },
+            };
+          }
+          return acc;
+        });
       }
     } catch {
       // fallback
@@ -140,7 +151,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess }) => {
 
     const name = regFullName.trim();
     const email = regEmail.trim().toLowerCase();
-    const role = regRole.trim() || 'Software Engineer';
+    const role = 'Software Engineer';
 
     if (!name || !email || !regPassword) {
       setErrorMsg('Mohon lengkapi Nama, Email, dan Kata Sandi.');
@@ -188,37 +199,26 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess }) => {
         createdAt: new Date().toISOString(),
       };
 
-      // Create initial candidate profile for this user
+      // Create clean candidate profile for this user (NO automated CV until user attaches one)
       const initialProfile: CandidateProfile = {
         id: newUserId,
         fullName: name,
         email,
-        phone: '+62 812-xxxx-xxxx',
-        location: 'Jakarta, Indonesia',
-        primaryRole: role,
-        experienceYears: 2,
-        expectedSalary: 'Rp 15.000.000 / bulan',
-        availability: 'Siap bergabung segera',
-        linkedin: `linkedin.com/in/${name.toLowerCase().replace(/\s+/g, '-')}`,
-        summary: `Profesional di bidang ${role} yang berkomitmen tinggi, adaptif, dan siap berkontribusi optimal untuk kemajuan perusahaan.`,
-        skills: ['Komunikasi', 'Teamwork', 'Problem Solving', 'Adaptabilitas', role],
-        experience: [
-          {
-            role: role,
-            company: 'Perusahaan Terakhir',
-            period: '2023 - Sekarang',
-            description: `Bertanggung jawab dalam pengembangan dan eksekusi strategi di bidang ${role}.`,
-          },
-        ],
-        education: [
-          {
-            degree: 'S1 Terkait',
-            institution: 'Universitas Terkemuka',
-            graduationYear: '2023',
-          },
-        ],
-        resumeFileName: `CV_${name.replace(/\s+/g, '_')}_2026.pdf`,
-        resumeFileSize: '320 KB',
+        phone: '',
+        location: '',
+        primaryRole: '',
+        experienceYears: 0,
+        expectedSalary: '',
+        availability: '',
+        linkedin: '',
+        github: '',
+        portfolio: '',
+        summary: '',
+        skills: [],
+        experience: [],
+        education: [],
+        resumeFileName: undefined,
+        resumeFileSize: undefined,
       };
 
       const newAccount: StoredAccount = {
@@ -442,23 +442,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess }) => {
                   onChange={(e) => setRegEmail(e.target.value)}
                   placeholder="budi.santoso@email.com"
                   className="w-full bg-black border border-zinc-800 rounded-lg pl-9 pr-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-400 font-mono"
-                  required
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-zinc-300 mb-1">
-                Target Posisi / Profesi Karir
-              </label>
-              <div className="relative">
-                <Briefcase className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  value={regRole}
-                  onChange={(e) => setRegRole(e.target.value)}
-                  placeholder="Misal: Fullstack Developer / UI Designer / Data Analyst"
-                  className="w-full bg-black border border-zinc-800 rounded-lg pl-9 pr-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-400"
                   required
                 />
               </div>

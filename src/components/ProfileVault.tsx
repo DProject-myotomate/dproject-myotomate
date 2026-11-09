@@ -82,31 +82,121 @@ export const ProfileVault: React.FC<ProfileVaultProps> = ({
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   };
 
+  // Ultra-fast client-side text extractor for PDF, DOCX, TXT, and Markdown
+  const quickExtractTextFromFile = async (file: File): Promise<string> => {
+    const name = file.name.toLowerCase();
+    try {
+      if (file.type.startsWith('text/') || name.endsWith('.txt') || name.endsWith('.md')) {
+        return await file.text();
+      }
+
+      const buffer = await file.arrayBuffer();
+      const decoder = new TextDecoder('utf-8', { fatal: false });
+      const raw = decoder.decode(new Uint8Array(buffer));
+
+      // Case 1: DOCX files contain XML with <w:t> tags
+      if (name.endsWith('.docx') || name.endsWith('.doc')) {
+        const xmlTags = raw.match(/<w:t[^>]*>([^<]+)<\/w:t>/g);
+        if (xmlTags && xmlTags.length > 0) {
+          return xmlTags.map((t) => t.replace(/<[^>]+>/g, '')).join(' ');
+        }
+      }
+
+      // Case 2: PDF files - match PDF literal strings in parentheses (text) Tj or TJ
+      if (name.endsWith('.pdf') || file.type === 'application/pdf') {
+        const matches: string[] = [];
+        const tjRegex = /\(([^)]+)\)\s*(?:Tj|'|")/g;
+        let m: RegExpExecArray | null;
+        while ((m = tjRegex.exec(raw)) !== null) {
+          if (m[1] && m[1].trim().length > 0) matches.push(m[1]);
+        }
+        const tjArrayRegex = /\[([^\]]+)\]\s*TJ/g;
+        while ((m = tjArrayRegex.exec(raw)) !== null) {
+          const inner = m[1];
+          const innerMatches = inner.match(/\(([^)]+)\)/g);
+          if (innerMatches) {
+            matches.push(innerMatches.map((s) => s.slice(1, -1)).join(' '));
+          }
+        }
+        if (matches.length > 10) {
+          return matches.join(' ').replace(/\\([()\\])/g, '$1');
+        }
+
+        // Fallback: extract continuous ASCII printable strings
+        const asciiRuns = raw.match(/[A-Za-z0-9@.,:\-_/ ]{4,}/g) || [];
+        const filtered = asciiRuns.filter((r) => {
+          const s = r.trim().toLowerCase();
+          return (
+            !s.startsWith('obj') &&
+            !s.startsWith('endobj') &&
+            !s.startsWith('stream') &&
+            !s.startsWith('xref') &&
+            !s.startsWith('trailer')
+          );
+        });
+        if (filtered.length > 15) {
+          return filtered.join('\n');
+        }
+      }
+
+      return '';
+    } catch (err) {
+      console.warn('Fast text extraction fallback:', err);
+      return '';
+    }
+  };
+
   const processFile = async (file: File) => {
     if (!file) return;
     setIsExtracting(true);
     setExtractError(null);
     setExtractSuccess(false);
-    setExtractionStep(`Membaca berkas ${file.name}...`);
+    setExtractionStep(`Membaca cepat berkas ${file.name}...`);
 
     try {
       const fileSizeFormatted = formatFileSize(file.size);
-      let fileData = '';
-      let fileText = '';
 
-      if (file.type.startsWith('text/') || file.name.endsWith('.txt') || file.name.endsWith('.md')) {
-        fileText = await file.text();
+      // Step 1: Ultra-fast local text extraction (<30ms)
+      const extractedText = await quickExtractTextFromFile(file);
+      const hasSubstantialText = extractedText.trim().length >= 40;
+
+      // Step 2: Instant optimistic prefill for instantaneous visual feedback (<50ms)
+      const baseName = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
+      const nameParts = baseName
+        .split(' ')
+        .filter((p) => !['cv', 'resume', 'ats', 'curriculum', 'vitae', 'pdf', 'docx', 'doc'].includes(p.toLowerCase()));
+      const probableName =
+        nameParts.length > 0
+          ? nameParts.slice(0, 3).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+          : '';
+      const emailMatch = extractedText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+      const phoneMatch = extractedText.match(/(\+62|62|08)[0-9\- ]{8,14}/);
+
+      // Instant responsive feedback: update name/email/phone & attach status right away
+      setCandidate((prev) => ({
+        ...prev,
+        fullName: probableName || prev.fullName,
+        email: emailMatch ? emailMatch[0] : prev.email,
+        phone: phoneMatch ? phoneMatch[0] : prev.phone,
+        resumeFileName: file.name,
+        resumeFileSize: `${fileSizeFormatted} (Memproses sinkronisasi...)`,
+      }));
+
+      // Step 3: Only read heavy base64 data if no text was extracted locally
+      let fileData = '';
+      if (!hasSubstantialText) {
+        setExtractionStep('Menyiapkan pemindaian dokumen...');
+        fileData = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
       }
 
-      setExtractionStep('Mengonversi berkas untuk pemindaian...');
-      fileData = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
+      setExtractionStep('AI menyinkronkan profil, keahlian, pengalaman, dan pendidikan...');
 
-      setExtractionStep('AI Gemini sedang menganalisis nama, kontak, dan riwayat karir...');
+      // Step 4: Rapid AI Extraction with thinkingBudget: 0
       const response = await fetch('/api/ai/parse-resume', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -115,19 +205,23 @@ export const ProfileVault: React.FC<ProfileVaultProps> = ({
           fileType: file.type || 'application/pdf',
           fileSize: fileSizeFormatted,
           fileData,
-          fileText,
+          fileText: extractedText,
         }),
       });
 
       const resData = await response.json();
       if (resData.success && resData.candidate) {
-        setExtractionStep('Menyelaraskan data ke kolom profil...');
+        setExtractionStep('Menyelesaikan sinkronisasi profil...');
         const parsed = resData.candidate;
+        try {
+          localStorage.setItem(`autolamar_manual_cv_${candidate.id}`, 'true');
+        } catch {}
+
         setCandidate((prev) => ({
           ...prev,
-          fullName: parsed.fullName || prev.fullName,
-          email: parsed.email || prev.email,
-          phone: parsed.phone || prev.phone,
+          fullName: parsed.fullName || prev.fullName || probableName,
+          email: parsed.email || prev.email || (emailMatch ? emailMatch[0] : ''),
+          phone: parsed.phone || prev.phone || (phoneMatch ? phoneMatch[0] : ''),
           location: parsed.location || prev.location,
           primaryRole: parsed.primaryRole || prev.primaryRole,
           experienceYears:
@@ -153,7 +247,7 @@ export const ProfileVault: React.FC<ProfileVaultProps> = ({
               ? parsed.education
               : prev.education,
           resumeFileName: file.name,
-          resumeFileSize: `${fileSizeFormatted} (Terisi Otomatis via AI)`,
+          resumeFileSize: `${fileSizeFormatted} (Tersinkronisasi Otomatis)`,
         }));
         setExtractSuccess(true);
         onSaveNotification();
@@ -197,61 +291,10 @@ export const ProfileVault: React.FC<ProfileVaultProps> = ({
     }
   };
 
-  const handleLoadDemoCV = async () => {
-    setIsExtracting(true);
-    setExtractError(null);
-    setExtractSuccess(false);
-    setExtractionStep('Memuat berkas contoh CV_Rian_Hidayat_Fullstack.pdf...');
-    try {
-      const response = await fetch('/api/ai/parse-resume', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fileName: 'CV_Rian_Hidayat_Fullstack_Lead_2026.pdf',
-          fileType: 'application/pdf',
-          fileSize: '412 KB',
-          fileText: `Rian Hidayat, S.Kom
-Email: rian.hidayat.dev@gmail.com | Telp: +62 811-2233-7788 | Domisili: Jakarta Selatan, DKI Jakarta
-LinkedIn: linkedin.com/in/rian-hidayat-tech | GitHub: github.com/rianhidayat | Portofolio: rianhidayat.io
-Target Posisi: Lead Fullstack Software Engineer | Pengalaman: 5 Tahun | Ekspektasi Gaji: Rp 28.000.000 / bulan | Notice: Siap bergabung segera
-
-RINGKASAN EKSEKUTIF:
-Lead Fullstack Engineer berpengalaman 5+ tahun memimpin rekayasa web skala besar dengan React, TypeScript, Next.js, Node.js, dan PostgreSQL. Berpengalaman merancang arsitektur microservices dan sistem pemrosesan transaksi tinggi dengan standar ATS terbaik.
-
-KEAHLIAN UTAMA:
-React, TypeScript, Next.js, Node.js, PostgreSQL, Docker, Tailwind CSS, Redis, REST API, GraphQL, CI/CD, Agile / Scrum.
-
-RIWAYAT PENGALAMAN KERJA:
-1. Lead Fullstack Engineer - PT Inovasi Finansial Nusantara (2022 - Sekarang)
-Memimpin tim rekayasa dalam membangun sistem core dengan latensi rendah dan ketersediaan 99.9%.
-2. Senior Frontend Developer - TokoKarya Digital (2020 - 2022)
-Membangun web app berkinerja tinggi yang mengerek performa loading hingga 40%.
-
-RIWAYAT PENDIDIKAN:
-S1 Sistem Informasi - Institut Teknologi Bandung (ITB), Lulus 2020.`,
-        }),
-      });
-      const resData = await response.json();
-      if (resData.candidate) {
-        setCandidate((prev) => ({
-          ...prev,
-          ...resData.candidate,
-          id: prev.id,
-          resumeFileName: 'CV_Rian_Hidayat_Fullstack_Lead_2026.pdf',
-          resumeFileSize: '412 KB (Terisi Otomatis via AI)',
-        }));
-        setExtractSuccess(true);
-        onSaveNotification();
-      }
-    } catch (err: any) {
-      setExtractError(err.message || 'Gagal memuat demo CV');
-    } finally {
-      setIsExtracting(false);
-      setExtractionStep('');
-    }
-  };
-
   const handleRemoveAttachedCV = () => {
+    try {
+      localStorage.removeItem(`autolamar_manual_cv_${candidate.id}`);
+    } catch {}
     setCandidate((prev) => ({
       ...prev,
       resumeFileName: undefined,
@@ -544,17 +587,6 @@ S1 Sistem Informasi - Institut Teknologi Bandung (ITB), Lulus 2020.`,
           <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
-              onClick={handleLoadDemoCV}
-              disabled={isExtracting}
-              className="px-3.5 py-2 text-xs font-medium text-zinc-300 hover:text-white bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap"
-              title="Gunakan contoh CV untuk menguji fitur pengisian otomatis"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-zinc-400" />
-              <span>Contoh CV Demo (1-Klik)</span>
-            </button>
-
-            <button
-              type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={isExtracting}
               className="px-4 py-2 text-xs font-semibold bg-white hover:bg-zinc-200 text-black rounded-lg transition-all flex items-center gap-2 shadow-sm whitespace-nowrap active:scale-95"
@@ -646,7 +678,7 @@ S1 Sistem Informasi - Institut Teknologi Bandung (ITB), Lulus 2020.`,
         )}
 
         {/* Current Attached CV Summary Strip */}
-        {candidate.resumeFileName && (
+        {candidate.resumeFileName ? (
           <div className="bg-black border border-zinc-800/80 rounded-lg p-3 flex items-center justify-between gap-3 text-xs">
             <div className="flex items-center gap-2.5 min-w-0">
               <FileText className="w-4 h-4 text-white shrink-0" />
@@ -677,6 +709,20 @@ S1 Sistem Informasi - Institut Teknologi Bandung (ITB), Lulus 2020.`,
               >
                 <Trash2 className="w-3.5 h-3.5" />
               </button>
+            </div>
+          </div>
+        ) : (
+          <div className="bg-black border border-dashed border-zinc-800 rounded-lg p-3 flex items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <FileText className="w-4 h-4 text-zinc-500 shrink-0" />
+              <div className="min-w-0">
+                <span className="font-medium text-zinc-300 block">
+                  Belum Ada Berkas CV Terlampir
+                </span>
+                <span className="text-[11px] text-zinc-500">
+                  Data profil tidak dibuat otomatis. Unggah berkas CV Anda untuk ekstraksi data profil & riwayat karir otomatis via AI.
+                </span>
+              </div>
             </div>
           </div>
         )}
@@ -739,16 +785,6 @@ S1 Sistem Informasi - Institut Teknologi Bandung (ITB), Lulus 2020.`,
                   type="text"
                   value={candidate.expectedSalary}
                   onChange={(e) => setCandidate({ ...candidate, expectedSalary: e.target.value })}
-                  className="w-full bg-black border border-zinc-800 rounded-lg p-2.5 text-zinc-200 focus:outline-none focus:border-zinc-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-zinc-400 mb-1">Ketersediaan Bergabung</label>
-                <input
-                  type="text"
-                  value={candidate.availability}
-                  onChange={(e) => setCandidate({ ...candidate, availability: e.target.value })}
                   className="w-full bg-black border border-zinc-800 rounded-lg p-2.5 text-zinc-200 focus:outline-none focus:border-zinc-500"
                 />
               </div>
