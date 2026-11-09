@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import {
   User,
   Sparkles,
@@ -16,24 +16,57 @@ import {
   AlertCircle,
   Trash2,
   Paperclip,
+  Pencil,
+  X,
 } from 'lucide-react';
 import { CandidateProfile } from '../types';
 import { DEFAULT_CANDIDATES } from '../data/defaultCandidates';
+import { getSkillRecommendations } from '../data/skillSuggestions';
 
 interface ProfileVaultProps {
   candidate: CandidateProfile;
   setCandidate: React.Dispatch<React.SetStateAction<CandidateProfile>>;
   onSaveNotification: () => void;
+  jobsCount?: number;
+  queueCount?: number;
+  appliedCount?: number;
+  onNavigateToTab?: (tab: 'jobs' | 'queue' | 'tracker') => void;
 }
 
 export const ProfileVault: React.FC<ProfileVaultProps> = ({
   candidate,
   setCandidate,
   onSaveNotification,
+  jobsCount = 0,
+  queueCount = 0,
+  appliedCount = 0,
+  onNavigateToTab,
 }) => {
   const [skillInput, setSkillInput] = useState('');
+  const [isSkillFocused, setIsSkillFocused] = useState(false);
+  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(-1);
+  const skillInputRef = useRef<HTMLInputElement>(null);
   const [isOptimizingSummary, setIsOptimizingSummary] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
+
+  // Experience CRUD state
+  const [editingExpIndex, setEditingExpIndex] = useState<number | null>(null);
+  const [isAddingExp, setIsAddingExp] = useState(false);
+  const [expForm, setExpForm] = useState({
+    role: '',
+    company: '',
+    period: '',
+    description: '',
+  });
+
+  // Education CRUD state
+  const [editingEduIndex, setEditingEduIndex] = useState<number | null>(null);
+  const [isAddingEdu, setIsAddingEdu] = useState(false);
+  const [eduForm, setEduForm] = useState({
+    degree: '',
+    institution: '',
+    graduationYear: '',
+  });
 
   // CV Attachment & Auto-fill State
   const [isExtracting, setIsExtracting] = useState(false);
@@ -235,17 +268,69 @@ S1 Sistem Informasi - Institut Teknologi Bandung (ITB), Lulus 2020.`,
     }
   };
 
-  // Add new skill tag
-  const handleAddSkill = (e: React.KeyboardEvent | React.MouseEvent) => {
-    if ('key' in e && e.key !== 'Enter') return;
-    e.preventDefault();
-    const clean = skillInput.trim();
-    if (clean && !candidate.skills.includes(clean)) {
+  // Filtered skill recommendations based on typing and already chosen skills
+  const skillRecommendations = useMemo(() => {
+    return getSkillRecommendations(skillInput, candidate.skills, 8);
+  }, [skillInput, candidate.skills]);
+
+  // Add skill helper
+  const addSkill = (rawSkill: string) => {
+    const clean = rawSkill.trim();
+    if (!clean) return;
+    if (!candidate.skills.some((s) => s.toLowerCase() === clean.toLowerCase())) {
       setCandidate((prev) => ({
         ...prev,
         skills: [...prev.skills, clean],
       }));
-      setSkillInput('');
+    }
+    setSkillInput('');
+    setSelectedSuggestionIndex(-1);
+    skillInputRef.current?.focus();
+  };
+
+  // Keyboard navigation for recommendations
+  const handleSkillKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (skillRecommendations.length > 0) {
+        setSelectedSuggestionIndex((prev) =>
+          prev < skillRecommendations.length - 1 ? prev + 1 : 0
+        );
+      }
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (skillRecommendations.length > 0) {
+        setSelectedSuggestionIndex((prev) =>
+          prev > 0 ? prev - 1 : skillRecommendations.length - 1
+        );
+      }
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (
+        selectedSuggestionIndex >= 0 &&
+        selectedSuggestionIndex < skillRecommendations.length
+      ) {
+        addSkill(skillRecommendations[selectedSuggestionIndex].name);
+      } else if (skillInput.trim()) {
+        addSkill(skillInput.trim());
+      }
+    } else if (e.key === 'Escape') {
+      setIsSkillFocused(false);
+      setSelectedSuggestionIndex(-1);
+    }
+  };
+
+  // Add new skill tag (button click or fallback)
+  const handleAddSkill = (e: React.KeyboardEvent | React.MouseEvent) => {
+    if ('key' in e && e.key !== 'Enter') return;
+    e.preventDefault();
+    if (
+      selectedSuggestionIndex >= 0 &&
+      selectedSuggestionIndex < skillRecommendations.length
+    ) {
+      addSkill(skillRecommendations[selectedSuggestionIndex].name);
+    } else if (skillInput.trim()) {
+      addSkill(skillInput.trim());
     }
   };
 
@@ -254,6 +339,143 @@ S1 Sistem Informasi - Institut Teknologi Bandung (ITB), Lulus 2020.`,
       ...prev,
       skills: prev.skills.filter((s) => s !== skillToRemove),
     }));
+  };
+
+  // Experience CRUD Handlers
+  const handleStartAddExp = () => {
+    setExpForm({ role: '', company: '', period: '', description: '' });
+    setEditingExpIndex(null);
+    setIsAddingExp(true);
+  };
+
+  const handleStartEditExp = (idx: number) => {
+    const item = candidate.experience[idx];
+    if (!item) return;
+    setExpForm({
+      role: item.role || '',
+      company: item.company || '',
+      period: item.period || '',
+      description: item.description || '',
+    });
+    setEditingExpIndex(idx);
+    setIsAddingExp(false);
+  };
+
+  const handleCancelExp = () => {
+    setIsAddingExp(false);
+    setEditingExpIndex(null);
+    setExpForm({ role: '', company: '', period: '', description: '' });
+  };
+
+  const handleSaveExp = () => {
+    if (!expForm.role.trim() || !expForm.company.trim()) return;
+
+    if (isAddingExp) {
+      setCandidate((prev) => ({
+        ...prev,
+        experience: [
+          {
+            role: expForm.role.trim(),
+            company: expForm.company.trim(),
+            period: expForm.period.trim() || '2023 - Sekarang',
+            description: expForm.description.trim(),
+          },
+          ...(prev.experience || []),
+        ],
+      }));
+    } else if (editingExpIndex !== null) {
+      setCandidate((prev) => ({
+        ...prev,
+        experience: prev.experience.map((item, idx) =>
+          idx === editingExpIndex
+            ? {
+                role: expForm.role.trim(),
+                company: expForm.company.trim(),
+                period: expForm.period.trim() || item.period,
+                description: expForm.description.trim(),
+              }
+            : item
+        ),
+      }));
+    }
+    handleCancelExp();
+  };
+
+  const handleDeleteExp = (idx: number) => {
+    setCandidate((prev) => ({
+      ...prev,
+      experience: prev.experience.filter((_, i) => i !== idx),
+    }));
+    if (editingExpIndex === idx) {
+      handleCancelExp();
+    }
+  };
+
+  // Education CRUD Handlers
+  const handleStartAddEdu = () => {
+    setEduForm({ degree: '', institution: '', graduationYear: '' });
+    setEditingEduIndex(null);
+    setIsAddingEdu(true);
+  };
+
+  const handleStartEditEdu = (idx: number) => {
+    const item = candidate.education[idx];
+    if (!item) return;
+    setEduForm({
+      degree: item.degree || '',
+      institution: item.institution || '',
+      graduationYear: item.graduationYear || '',
+    });
+    setEditingEduIndex(idx);
+    setIsAddingEdu(false);
+  };
+
+  const handleCancelEdu = () => {
+    setIsAddingEdu(false);
+    setEditingEduIndex(null);
+    setEduForm({ degree: '', institution: '', graduationYear: '' });
+  };
+
+  const handleSaveEdu = () => {
+    if (!eduForm.degree.trim() || !eduForm.institution.trim()) return;
+
+    if (isAddingEdu) {
+      setCandidate((prev) => ({
+        ...prev,
+        education: [
+          {
+            degree: eduForm.degree.trim(),
+            institution: eduForm.institution.trim(),
+            graduationYear: eduForm.graduationYear.trim() || new Date().getFullYear().toString(),
+          },
+          ...(prev.education || []),
+        ],
+      }));
+    } else if (editingEduIndex !== null) {
+      setCandidate((prev) => ({
+        ...prev,
+        education: prev.education.map((item, idx) =>
+          idx === editingEduIndex
+            ? {
+                degree: eduForm.degree.trim(),
+                institution: eduForm.institution.trim(),
+                graduationYear: eduForm.graduationYear.trim() || item.graduationYear,
+              }
+            : item
+        ),
+      }));
+    }
+    handleCancelEdu();
+  };
+
+  const handleDeleteEdu = (idx: number) => {
+    setCandidate((prev) => ({
+      ...prev,
+      education: prev.education.filter((_, i) => i !== idx),
+    }));
+    if (editingEduIndex === idx) {
+      handleCancelEdu();
+    }
   };
 
   // Optimize summary using Gemini
@@ -294,38 +516,6 @@ S1 Sistem Informasi - Institut Teknologi Bandung (ITB), Lulus 2020.`,
 
   return (
     <div className="space-y-6">
-      {/* Top Banner & Profile Switcher - Monochrome Black & White */}
-      <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-5 sm:p-6 shadow-sm">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
-              Profil Pelamar & Berkas Karir
-            </h2>
-            <p className="text-xs sm:text-sm text-zinc-400">
-              Data di bawah ini digunakan oleh mesin AI untuk mempersonalisasi surat lamaran, menjawab kuis seleksi HR, dan menghitung skor ATS.
-            </p>
-          </div>
-
-          {/* Quick preset selector - Black & White */}
-          <div className="flex items-center gap-1.5 bg-black p-1.5 rounded-lg border border-zinc-800 text-xs">
-            <span className="text-zinc-500 pl-2">Preset:</span>
-            {DEFAULT_CANDIDATES.map((preset) => (
-              <button
-                key={preset.id}
-                onClick={() => handleSelectPreset(preset.id)}
-                className={`px-2.5 py-1 rounded font-medium transition-colors whitespace-nowrap ${
-                  candidate.id === preset.id
-                    ? 'bg-white text-black font-semibold shadow-xs'
-                    : 'text-zinc-400 hover:text-white'
-                }`}
-              >
-                {preset.primaryRole.split('/')[0].trim()}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
       {/* Hidden File Input */}
       <input
         type="file"
@@ -341,10 +531,10 @@ S1 Sistem Informasi - Institut Teknologi Bandung (ITB), Lulus 2020.`,
           <div>
             <div className="flex items-center gap-2 text-xs text-zinc-400 font-medium mb-1">
               <UploadCloud className="w-4 h-4 text-white" />
-              <span className="text-white">Attach CV & Ekstraksi Data Otomatis</span>
+              <span className="text-white">Attach CV</span>
             </div>
             <h3 className="text-base sm:text-lg font-bold text-white tracking-tight">
-              Lampirkan Berkas CV / Resume ATS
+              Lampirkan Berkas CV / Resume
             </h3>
             <p className="text-xs text-zinc-400">
               Unggah berkas CV Anda. AI akan secara otomatis membaca dan mengisi kolom nama, kontak, ringkasan, riwayat kerja, dan keahlian di bawah ini.
@@ -706,27 +896,139 @@ S1 Sistem Informasi - Institut Teknologi Bandung (ITB), Lulus 2020.`,
           {/* Skills Management */}
           <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-5 space-y-4">
             <h3 className="text-sm font-semibold text-white flex items-center justify-between">
-              <span>Keahlian & Kata Kunci ATS ({candidate.skills.length})</span>
+              <span>Keahlian</span>
+              <span className="text-xs text-zinc-400 font-mono">
+                {candidate.skills.length} Keahlian Terdaftar
+              </span>
             </h3>
 
-            {/* Add skill input */}
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={skillInput}
-                onChange={(e) => setSkillInput(e.target.value)}
-                onKeyDown={handleAddSkill}
-                placeholder="Ketik keahlian (misal: Docker, Kubernetes, SEO, Figma) lalu tekan Enter..."
-                className="flex-1 bg-black border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-200 focus:outline-none focus:border-zinc-500 font-mono"
-              />
-              <button
-                type="button"
-                onClick={handleAddSkill}
-                className="px-3.5 py-2 text-xs font-semibold bg-white hover:bg-zinc-200 text-black rounded-lg transition-colors flex items-center gap-1"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Tambah</span>
-              </button>
+            {/* Add skill input with autocomplete recommendation */}
+            <div className="relative">
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <input
+                    ref={skillInputRef}
+                    type="text"
+                    value={skillInput}
+                    onChange={(e) => {
+                      setSkillInput(e.target.value);
+                      setSelectedSuggestionIndex(-1);
+                      if (!isSkillFocused) setIsSkillFocused(true);
+                    }}
+                    onFocus={() => setIsSkillFocused(true)}
+                    onBlur={() => {
+                      setTimeout(() => setIsSkillFocused(false), 200);
+                    }}
+                    onKeyDown={handleSkillKeyDown}
+                    placeholder="Ketik keahlian (misal: Docker, Kubernetes, SEO, Figma) lalu tekan Enter..."
+                    className="w-full bg-black border border-zinc-800 rounded-lg px-3 py-2 pr-8 text-xs text-zinc-200 focus:outline-none focus:border-zinc-500 font-mono"
+                  />
+                  {skillInput && (
+                    <button
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setSkillInput('');
+                        setSelectedSuggestionIndex(-1);
+                      }}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-200 p-0.5"
+                      title="Hapus ketikan"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAddSkill}
+                  className="px-3.5 py-2 text-xs font-semibold bg-white hover:bg-zinc-200 text-black rounded-lg transition-colors flex items-center gap-1 shrink-0"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Tambah</span>
+                </button>
+              </div>
+
+              {/* Autocomplete Recommendation Popover */}
+              {isSkillFocused && (skillRecommendations.length > 0 || skillInput.trim()) && (
+                <div className="absolute left-0 right-0 top-full mt-1.5 z-40 bg-zinc-950 border border-zinc-800 rounded-xl shadow-2xl overflow-hidden divide-y divide-zinc-900">
+                  <div className="px-3 py-1.5 bg-zinc-900/90 flex items-center justify-between text-[11px] text-zinc-400 font-mono">
+                    <span className="flex items-center gap-1.5">
+                      <Sparkles className="w-3 h-3 text-white" />
+                      <span>
+                        {skillInput.trim()
+                          ? `Rekomendasi Keahlian Terkait "${skillInput.trim()}" (${skillRecommendations.length})`
+                          : 'Rekomendasi Keahlian Populer'}
+                      </span>
+                    </span>
+                    <span className="text-[10px] text-zinc-500">Gunakan ↑↓ navigasi & Enter</span>
+                  </div>
+
+                  <div className="max-h-56 overflow-y-auto">
+                    {skillRecommendations.map((item, idx) => {
+                      const isSelected = idx === selectedSuggestionIndex;
+                      return (
+                        <button
+                          key={item.name}
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            addSkill(item.name);
+                          }}
+                          onMouseEnter={() => setSelectedSuggestionIndex(idx)}
+                          className={`w-full px-3 py-2 text-left flex items-center justify-between transition-colors text-xs font-mono ${
+                            isSelected ? 'bg-zinc-800 text-white' : 'hover:bg-zinc-900 text-zinc-300'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full ${
+                                isSelected ? 'bg-white' : 'bg-zinc-600'
+                              }`}
+                            />
+                            <span className="font-medium text-zinc-100">{item.name}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-zinc-400 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800">
+                              {item.category}
+                            </span>
+                            <span className="text-[11px] text-zinc-400 group-hover:text-white font-medium">
+                              + Tambah
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
+
+                    {/* Custom skill option if input doesn't exactly match any recommendation */}
+                    {skillInput.trim() &&
+                      !skillRecommendations.some(
+                        (r) => r.name.toLowerCase() === skillInput.trim().toLowerCase()
+                      ) &&
+                      !candidate.skills.some(
+                        (s) => s.toLowerCase() === skillInput.trim().toLowerCase()
+                      ) && (
+                        <button
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            addSkill(skillInput.trim());
+                          }}
+                          className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-zinc-900 text-xs font-mono text-zinc-400 border-t border-zinc-900"
+                        >
+                          <div className="flex items-center gap-2">
+                            <Plus className="w-3.5 h-3.5 text-zinc-300" />
+                            <span>
+                              Tambahkan <span className="text-white font-semibold">"{skillInput.trim()}"</span> sebagai keahlian kustom
+                            </span>
+                          </div>
+                          <span className="text-[10px] text-zinc-500 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800">
+                            Enter
+                          </span>
+                        </button>
+                      )}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Skill tags */}
@@ -749,50 +1051,325 @@ S1 Sistem Informasi - Institut Teknologi Bandung (ITB), Lulus 2020.`,
             </div>
           </div>
 
-          {/* Experience list */}
+          {/* Experience list with interactive CRUD */}
           <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-5 space-y-4">
-            <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-              <Briefcase className="w-4 h-4 text-zinc-400" />
-              <span>Riwayat Pengalaman Kerja</span>
-            </h3>
+            <div className="flex flex-wrap items-center justify-between gap-3 pb-1 border-b border-zinc-800/80">
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                <Briefcase className="w-4 h-4 text-zinc-400" />
+                <span>Riwayat Pengalaman Kerja</span>
+                <span className="text-xs text-zinc-400 font-mono">({candidate.experience.length})</span>
+              </h3>
 
-            <div className="space-y-3">
-              {candidate.experience.map((exp, idx) => (
-                <div
-                  key={idx}
-                  className="bg-black p-3.5 rounded-lg border border-zinc-800 space-y-1.5 text-xs"
+              {!isAddingExp && editingExpIndex === null && (
+                <button
+                  type="button"
+                  onClick={handleStartAddExp}
+                  className="px-3 py-1.5 text-xs font-semibold bg-white hover:bg-zinc-200 text-black rounded-lg transition-colors flex items-center gap-1.5 shadow-xs"
                 >
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-white">{exp.role}</span>
-                    <span className="text-zinc-500 font-mono text-[11px]">{exp.period}</span>
-                  </div>
-                  <span className="text-zinc-300 font-medium block">{exp.company}</span>
-                  <p className="text-zinc-400 leading-relaxed">{exp.description}</p>
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Tambah Pengalaman</span>
+                </button>
+              )}
+            </div>
+
+            {/* Experience Add/Edit Form */}
+            {(isAddingExp || editingExpIndex !== null) && (
+              <div className="bg-black border border-zinc-700 rounded-xl p-4 sm:p-5 space-y-3.5 animate-in fade-in duration-150">
+                <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
+                  <h4 className="text-xs font-semibold text-white uppercase tracking-wider">
+                    {isAddingExp ? 'Tambah Pengalaman Kerja Baru' : 'Edit Pengalaman Kerja'}
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={handleCancelExp}
+                    className="text-zinc-400 hover:text-white p-1 rounded hover:bg-zinc-900"
+                    title="Batal"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
                 </div>
-              ))}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-400 mb-1">
+                      Posisi / Jabatan <span className="text-white">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={expForm.role}
+                      onChange={(e) => setExpForm({ ...expForm, role: e.target.value })}
+                      placeholder="Contoh: Senior Frontend Engineer"
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-200 focus:outline-none focus:border-zinc-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-400 mb-1">
+                      Nama Perusahaan <span className="text-white">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={expForm.company}
+                      onChange={(e) => setExpForm({ ...expForm, company: e.target.value })}
+                      placeholder="Contoh: PT Gojek Indonesia"
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-200 focus:outline-none focus:border-zinc-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-zinc-400 mb-1">
+                    Periode Kerja
+                  </label>
+                  <input
+                    type="text"
+                    value={expForm.period}
+                    onChange={(e) => setExpForm({ ...expForm, period: e.target.value })}
+                    placeholder="Contoh: 2022 - Sekarang (2 Tahun) atau Jan 2021 - Des 2023"
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-200 focus:outline-none focus:border-zinc-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-zinc-400 mb-1">
+                    Deskripsi Tanggung Jawab & Pencapaian
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={expForm.description}
+                    onChange={(e) => setExpForm({ ...expForm, description: e.target.value })}
+                    placeholder="Jelaskan peran utama, teknologi yang digunakan, serta pencapaian terukur yang relevan untuk ATS..."
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-200 focus:outline-none focus:border-zinc-500 leading-relaxed resize-none"
+                  />
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-1 border-t border-zinc-800">
+                  <button
+                    type="button"
+                    onClick={handleCancelExp}
+                    className="px-3 py-1.5 text-xs font-medium text-zinc-400 hover:text-white bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-lg transition-colors"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveExp}
+                    disabled={!expForm.role.trim() || !expForm.company.trim()}
+                    className="px-4 py-1.5 text-xs font-semibold bg-white hover:bg-zinc-200 text-black rounded-lg transition-colors flex items-center gap-1.5 disabled:opacity-50 shadow-xs"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>{isAddingExp ? 'Tambahkan ke Profil' : 'Simpan Perubahan'}</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Experience Cards Listing */}
+            <div className="space-y-3">
+              {candidate.experience.length === 0 ? (
+                <div className="text-center py-6 bg-black rounded-lg border border-zinc-900 text-xs text-zinc-500">
+                  Belum ada riwayat pengalaman kerja. Klik Tambah Pengalaman di atas untuk melengkapi.
+                </div>
+              ) : (
+                candidate.experience.map((exp, idx) => (
+                  <div
+                    key={idx}
+                    className="bg-black p-3.5 sm:p-4 rounded-lg border border-zinc-800 hover:border-zinc-700 transition-colors space-y-2 group"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-0.5 flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h4 className="font-semibold text-white text-xs sm:text-sm truncate">
+                            {exp.role}
+                          </h4>
+                          <span className="text-zinc-500 text-xs">di</span>
+                          <span className="text-zinc-300 font-medium text-xs">
+                            {exp.company}
+                          </span>
+                        </div>
+                        <span className="text-zinc-500 font-mono text-[11px] block">
+                          {exp.period}
+                        </span>
+                      </div>
+
+                      {/* Action buttons (Edit & Delete) */}
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleStartEditExp(idx)}
+                          className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-900 rounded transition-colors"
+                          title="Edit pengalaman ini"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteExp(idx)}
+                          className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-900 rounded transition-colors"
+                          title="Hapus pengalaman ini"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {exp.description && (
+                      <p className="text-zinc-400 text-xs leading-relaxed pt-1 border-t border-zinc-900">
+                        {exp.description}
+                      </p>
+                    )}
+                  </div>
+                ))
+              )}
             </div>
           </div>
 
-          {/* Education list */}
+          {/* Education list with interactive CRUD */}
           <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-5 space-y-4">
-            <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-              <GraduationCap className="w-4 h-4 text-zinc-400" />
-              <span>Riwayat Pendidikan</span>
-            </h3>
+            <div className="flex flex-wrap items-center justify-between gap-3 pb-1 border-b border-zinc-800/80">
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                <GraduationCap className="w-4 h-4 text-zinc-400" />
+                <span>Riwayat Pendidikan</span>
+                <span className="text-xs text-zinc-400 font-mono">({candidate.education.length})</span>
+              </h3>
 
-            <div className="space-y-2.5">
-              {candidate.education.map((edu, idx) => (
-                <div
-                  key={idx}
-                  className="bg-black p-3 rounded-lg border border-zinc-800 flex items-center justify-between text-xs"
+              {!isAddingEdu && editingEduIndex === null && (
+                <button
+                  type="button"
+                  onClick={handleStartAddEdu}
+                  className="px-3 py-1.5 text-xs font-semibold bg-white hover:bg-zinc-200 text-black rounded-lg transition-colors flex items-center gap-1.5 shadow-xs"
                 >
-                  <div>
-                    <span className="font-semibold text-white block">{edu.degree}</span>
-                    <span className="text-zinc-400 block">{edu.institution}</span>
-                  </div>
-                  <span className="text-zinc-500 font-mono">{edu.graduationYear}</span>
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Tambah Pendidikan</span>
+                </button>
+              )}
+            </div>
+
+            {/* Education Add/Edit Form */}
+            {(isAddingEdu || editingEduIndex !== null) && (
+              <div className="bg-black border border-zinc-700 rounded-xl p-4 sm:p-5 space-y-3.5 animate-in fade-in duration-150">
+                <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
+                  <h4 className="text-xs font-semibold text-white uppercase tracking-wider">
+                    {isAddingEdu ? 'Tambah Pendidikan Baru' : 'Edit Riwayat Pendidikan'}
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={handleCancelEdu}
+                    className="text-zinc-400 hover:text-white p-1 rounded hover:bg-zinc-900"
+                    title="Batal"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
                 </div>
-              ))}
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-medium text-zinc-400 mb-1">
+                      Gelar / Program Studi <span className="text-white">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={eduForm.degree}
+                      onChange={(e) => setEduForm({ ...eduForm, degree: e.target.value })}
+                      placeholder="Contoh: S1 Teknik Informatika / Ilmu Komputer"
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-200 focus:outline-none focus:border-zinc-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-400 mb-1">
+                      Tahun Kelulusan
+                    </label>
+                    <input
+                      type="text"
+                      value={eduForm.graduationYear}
+                      onChange={(e) => setEduForm({ ...eduForm, graduationYear: e.target.value })}
+                      placeholder="Contoh: 2021"
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-200 focus:outline-none focus:border-zinc-500 font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-zinc-400 mb-1">
+                    Nama Institusi / Universitas <span className="text-white">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={eduForm.institution}
+                    onChange={(e) => setEduForm({ ...eduForm, institution: e.target.value })}
+                    placeholder="Contoh: Universitas Indonesia (UI) atau Institut Teknologi Bandung (ITB)"
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-200 focus:outline-none focus:border-zinc-500"
+                  />
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-1 border-t border-zinc-800">
+                  <button
+                    type="button"
+                    onClick={handleCancelEdu}
+                    className="px-3 py-1.5 text-xs font-medium text-zinc-400 hover:text-white bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-lg transition-colors"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveEdu}
+                    disabled={!eduForm.degree.trim() || !eduForm.institution.trim()}
+                    className="px-4 py-1.5 text-xs font-semibold bg-white hover:bg-zinc-200 text-black rounded-lg transition-colors flex items-center gap-1.5 disabled:opacity-50 shadow-xs"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>{isAddingEdu ? 'Tambahkan ke Profil' : 'Simpan Perubahan'}</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Education Cards Listing */}
+            <div className="space-y-2.5">
+              {candidate.education.length === 0 ? (
+                <div className="text-center py-6 bg-black rounded-lg border border-zinc-900 text-xs text-zinc-500">
+                  Belum ada riwayat pendidikan. Klik Tambah Pendidikan di atas untuk melengkapi.
+                </div>
+              ) : (
+                candidate.education.map((edu, idx) => (
+                  <div
+                    key={idx}
+                    className="bg-black p-3.5 rounded-lg border border-zinc-800 hover:border-zinc-700 transition-colors flex items-center justify-between gap-3 text-xs group"
+                  >
+                    <div className="space-y-0.5 flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-white truncate">{edu.degree}</span>
+                        {edu.graduationYear && (
+                          <span className="text-zinc-500 font-mono text-[11px] bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800">
+                            Lulus {edu.graduationYear}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-zinc-400 block truncate">{edu.institution}</span>
+                    </div>
+
+                    {/* Action buttons (Edit & Delete) */}
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleStartEditEdu(idx)}
+                        className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-900 rounded transition-colors"
+                        title="Edit pendidikan ini"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteEdu(idx)}
+                        className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-900 rounded transition-colors"
+                        title="Hapus pendidikan ini"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
 

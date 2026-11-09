@@ -3,14 +3,18 @@ import {
   Play,
   Pause,
   Trash2,
-  Sparkles,
   Settings,
   CheckCircle2,
   Clock,
   ArrowRight,
   Layers,
+  Send,
+  Eye,
+  Sparkles,
+  User,
 } from 'lucide-react';
-import { QueueItem, AutoApplyConfig, CandidateProfile } from '../types';
+import { Job, QueueItem, AutoApplyConfig, CandidateProfile } from '../types';
+import { calculateJobMatch } from '../utils/atsMatcher';
 
 interface AutoApplyQueueProps {
   queue: QueueItem[];
@@ -24,6 +28,10 @@ interface AutoApplyQueueProps {
   config: AutoApplyConfig;
   setConfig: React.Dispatch<React.SetStateAction<AutoApplyConfig>>;
   onGoToTracker: () => void;
+  onGoToJobs?: () => void;
+  onSelectJob?: (job: Job) => void;
+  onDirectApplySingle?: (job: Job) => void;
+  onGoToProfile?: () => void;
 }
 
 export const AutoApplyQueue: React.FC<AutoApplyQueueProps> = ({
@@ -38,6 +46,10 @@ export const AutoApplyQueue: React.FC<AutoApplyQueueProps> = ({
   config,
   setConfig,
   onGoToTracker,
+  onGoToJobs,
+  onSelectJob,
+  onDirectApplySingle,
+  onGoToProfile,
 }) => {
   const [showConfig, setShowConfig] = useState(false);
 
@@ -52,16 +64,28 @@ export const AutoApplyQueue: React.FC<AutoApplyQueueProps> = ({
       <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-5 sm:p-6 shadow-sm">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-5">
           <div className="space-y-1">
-            <div className="flex items-center gap-2 text-xs text-zinc-400 font-medium">
-              <Sparkles className="w-3.5 h-3.5 text-white" />
-              <span className="text-white">Dispatcher & Antrean</span>
-            </div>
             <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
-              Antrean Otomasi Lamaran
+              Antrean Lamaran
             </h2>
             <p className="text-xs sm:text-sm text-zinc-400">
               Sistem memproses setiap lowongan satu per satu: menyusun surat lamaran personal dengan Gemini AI, menjawab kuis skrining, dan mengirimkannya ke sistem HR.
             </p>
+            <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
+              <span className="text-zinc-500 text-[11px]">Profil Aktif:</span>
+              <span className="text-zinc-200 font-medium text-[11px] bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded">
+                {candidate.fullName} · {candidate.primaryRole}
+              </span>
+              <span className="text-zinc-400 text-[11px]">({candidate.skills.length} keahlian)</span>
+              {onGoToProfile && (
+                <button
+                  type="button"
+                  onClick={onGoToProfile}
+                  className="text-zinc-400 hover:text-white underline text-[11px] ml-1"
+                >
+                  Ubah di Profile
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Master Control Buttons */}
@@ -228,17 +252,30 @@ export const AutoApplyQueue: React.FC<AutoApplyQueueProps> = ({
       {/* Queue items listing */}
       <div className="space-y-3">
         {queue.length === 0 ? (
-          <div className="text-center py-16 bg-zinc-950 border border-zinc-800 rounded-xl space-y-3">
+          <div className="text-center py-16 bg-zinc-950 border border-zinc-800 rounded-xl space-y-4">
             <Layers className="w-10 h-10 text-zinc-600 mx-auto" />
-            <h3 className="text-base font-semibold text-white">Antrean lamaran masih kosong</h3>
-            <p className="text-xs text-zinc-400 max-w-md mx-auto">
-              Buka tab <strong>Jobs</strong> dan pilih pekerjaan yang Anda minati untuk dimasukkan ke antrean auto-apply ini.
-            </p>
+            <div className="space-y-1">
+              <h3 className="text-base font-semibold text-white">Antrean lamaran masih kosong</h3>
+              <p className="text-xs text-zinc-400 max-w-md mx-auto">
+                Buka menu <strong>Jobs</strong> untuk memilih lowongan yang ingin diajukan secara otomatis atau 1-klik.
+              </p>
+            </div>
+            {onGoToJobs && (
+              <button
+                type="button"
+                onClick={onGoToJobs}
+                className="px-4 py-2 text-xs font-semibold bg-white hover:bg-zinc-200 text-black rounded-lg transition-colors inline-flex items-center gap-2 shadow-xs"
+              >
+                <span>Jelajahi Lowongan di Jobs</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
         ) : (
           queue.map((item, index) => {
             const isCurrent = activeProcessingId === item.id;
             const isDone = item.status === 'completed';
+            const match = calculateJobMatch(candidate, item.job);
 
             return (
               <div
@@ -248,7 +285,7 @@ export const AutoApplyQueue: React.FC<AutoApplyQueueProps> = ({
                     ? 'border-white bg-zinc-900/40 ring-1 ring-white/20'
                     : isDone
                     ? 'border-zinc-800 opacity-80'
-                    : 'border-zinc-800'
+                    : 'border-zinc-800 hover:border-zinc-700'
                 }`}
               >
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -268,7 +305,13 @@ export const AutoApplyQueue: React.FC<AutoApplyQueueProps> = ({
 
                     <div className="space-y-1 flex-1 min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h4 className="text-sm font-semibold text-white truncate">
+                        <h4
+                          onClick={() => onSelectJob && onSelectJob(item.job)}
+                          className={`text-sm font-semibold text-white truncate ${
+                            onSelectJob ? 'cursor-pointer hover:text-zinc-300' : ''
+                          }`}
+                          title={onSelectJob ? 'Klik untuk meninjau kualifikasi & surat lamaran' : undefined}
+                        >
                           {item.job.title}
                         </h4>
                         <span className="text-xs text-zinc-500">di</span>
@@ -277,6 +320,11 @@ export const AutoApplyQueue: React.FC<AutoApplyQueueProps> = ({
                         </span>
                         <span className="text-[10px] font-mono px-2 py-0.5 rounded border bg-zinc-900 text-zinc-400 border-zinc-800">
                           {item.job.source}
+                        </span>
+
+                        {/* Live Synchronized ATS Match Chip */}
+                        <span className="text-[11px] font-mono font-semibold text-white bg-zinc-900 border border-zinc-700 px-2 py-0.5 rounded">
+                          {match.score}% Match
                         </span>
                       </div>
 
@@ -306,8 +354,8 @@ export const AutoApplyQueue: React.FC<AutoApplyQueueProps> = ({
                     </div>
                   </div>
 
-                  {/* Right: Status badge & remove */}
-                  <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-zinc-800">
+                  {/* Right: Status badge & actions */}
+                  <div className="flex items-center justify-between sm:justify-end gap-2.5 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-zinc-800">
                     <div>
                       {item.status === 'pending' && (
                         <span className="text-xs font-mono text-zinc-500 flex items-center gap-1">
@@ -326,6 +374,33 @@ export const AutoApplyQueue: React.FC<AutoApplyQueueProps> = ({
                         </span>
                       )}
                     </div>
+
+                    {!isProcessing && item.status === 'pending' && (
+                      <>
+                        {onSelectJob && (
+                          <button
+                            type="button"
+                            onClick={() => onSelectJob(item.job)}
+                            className="px-2.5 py-1 text-xs font-medium text-zinc-300 hover:text-white bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded transition-colors whitespace-nowrap"
+                            title="Tinjau detail lowongan atau sesuaikan surat lamaran"
+                          >
+                            Review & Edit
+                          </button>
+                        )}
+
+                        {onDirectApplySingle && (
+                          <button
+                            type="button"
+                            onClick={() => onDirectApplySingle(item.job)}
+                            className="px-2.5 py-1 text-xs font-semibold text-black bg-white hover:bg-zinc-200 rounded transition-colors whitespace-nowrap flex items-center gap-1 shadow-xs"
+                            title="Kirim lamaran ini langsung sekarang tanpa menunggu giliran antrean"
+                          >
+                            <Send className="w-3 h-3" />
+                            <span>Lamar Sekarang</span>
+                          </button>
+                        )}
+                      </>
+                    )}
 
                     {!isProcessing && item.status !== 'processing' && (
                       <button

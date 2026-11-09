@@ -24,6 +24,7 @@ interface JobRadarProps {
   onAddMultipleToQueue: (jobs: Job[]) => void;
   onOpenCustomJobModal: () => void;
   onOpenPortalSyncModal: () => void;
+  onNavigateToTab?: (tab: 'jobs' | 'queue' | 'tracker' | 'profile') => void;
 }
 
 export const JobRadar: React.FC<JobRadarProps> = ({
@@ -36,6 +37,7 @@ export const JobRadar: React.FC<JobRadarProps> = ({
   onAddMultipleToQueue,
   onOpenCustomJobModal,
   onOpenPortalSyncModal,
+  onNavigateToTab,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPortal, setSelectedPortal] = useState<string>('all');
@@ -118,14 +120,62 @@ export const JobRadar: React.FC<JobRadarProps> = ({
               <Sparkles className="w-3.5 h-3.5 text-white" />
               <span className="text-white">Pencocokan Otomatis Aktif</span>
               <span aria-hidden="true">·</span>
-              <span className="text-zinc-400">Profil: {candidate.primaryRole}</span>
+              <span className="text-zinc-300">
+                Profil: <strong className="text-white font-medium">{candidate.fullName}</strong> ({candidate.primaryRole})
+              </span>
+              {onNavigateToTab && (
+                <button
+                  type="button"
+                  onClick={() => onNavigateToTab('profile')}
+                  className="text-zinc-400 hover:text-white underline text-[11px] ml-1"
+                >
+                  Ubah di Profile
+                </button>
+              )}
             </div>
             <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight text-balance">
               Jobs dan kecocokan CV
             </h1>
             <p className="text-xs sm:text-sm text-zinc-400 leading-relaxed">
-              My Otomate memindai lowongan kerja aktif dari berbagai jobportal, menganalisis kesesuaian CV, dan menyiapkan lamaran siap kirim dalam sekali klik.
+              My Otomate memindai lowongan kerja aktif, menghitung kecocokan ATS secara instan berdasarkan profil Anda, dan menyiapkan lamaran siap kirim.
             </p>
+
+            {/* Live Sync Status Pill Badges */}
+            <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
+              <span className="text-zinc-400 text-[11px]">Terhubung:</span>
+              <span className="bg-zinc-900 border border-zinc-800 text-zinc-200 px-2 py-0.5 rounded text-[11px] font-mono">
+                {candidate.skills.length} Keahlian Profil
+              </span>
+              {onNavigateToTab ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => onNavigateToTab('queue')}
+                    className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-200 px-2 py-0.5 rounded text-[11px] font-mono transition-colors flex items-center gap-1"
+                  >
+                    <span>{queueJobIds.size} di Antrean</span>
+                    <span className="text-zinc-500">&rarr;</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onNavigateToTab('tracker')}
+                    className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-200 px-2 py-0.5 rounded text-[11px] font-mono transition-colors flex items-center gap-1"
+                  >
+                    <span>{appliedJobIds.size} Terkirim di Lacak</span>
+                    <span className="text-zinc-500">&rarr;</span>
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span className="bg-zinc-900 border border-zinc-800 text-zinc-200 px-2 py-0.5 rounded text-[11px] font-mono">
+                    {queueJobIds.size} di Antrean
+                  </span>
+                  <span className="bg-zinc-900 border border-zinc-800 text-zinc-200 px-2 py-0.5 rounded text-[11px] font-mono">
+                    {appliedJobIds.size} Terkirim
+                  </span>
+                </>
+              )}
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5 shrink-0">
@@ -502,8 +552,26 @@ export const JobRadar: React.FC<JobRadarProps> = ({
                         onClick={() => onSelectJob(job)}
                         className="px-3 py-1.5 text-xs font-medium text-zinc-300 hover:text-white bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-lg transition-colors whitespace-nowrap"
                       >
-                        Review & AI
+                        {isApplied ? 'Review & Lamar Ulang' : 'Review & Lamar'}
                       </button>
+
+                      {isApplied && onNavigateToTab && (
+                        <button
+                          onClick={() => onNavigateToTab('tracker')}
+                          className="px-3 py-1.5 text-xs font-medium text-white bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 rounded-lg transition-colors whitespace-nowrap"
+                        >
+                          Lihat di Lacak
+                        </button>
+                      )}
+
+                      {isInQueue && !isApplied && onNavigateToTab && (
+                        <button
+                          onClick={() => onNavigateToTab('queue')}
+                          className="px-3 py-1.5 text-xs font-medium text-zinc-300 hover:text-white bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 rounded-lg transition-colors whitespace-nowrap"
+                        >
+                          Lihat di Antrean
+                        </button>
+                      )}
 
                       {!isApplied && !isInQueue && (
                         <button

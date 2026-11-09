@@ -16,6 +16,7 @@ import { INITIAL_JOBS } from './data/seedJobs';
 import { DEFAULT_CANDIDATES } from './data/defaultCandidates';
 import { INITIAL_PORTALS } from './data/portalIntegrations';
 import { PortalSyncModal } from './components/PortalSyncModal';
+import { AuthScreen } from './components/AuthScreen';
 import {
   Job,
   CandidateProfile,
@@ -23,11 +24,22 @@ import {
   ApplicationRecord,
   AutoApplyConfig,
   ApplicationStatus,
+  AuthUser,
 } from './types';
 import { calculateJobMatch } from './utils/atsMatcher';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'jobs' | 'queue' | 'tracker' | 'profile'>('jobs');
+
+  // Authenticated user session state
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => {
+    try {
+      const saved = localStorage.getItem('autolamar_auth_user');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
 
   // Candidate Profile State with localStorage persistence
   const [candidate, setCandidate] = useState<CandidateProfile>(() => {
@@ -92,14 +104,30 @@ export default function App() {
     }
   });
 
-  // Automation Settings
-  const [config, setConfig] = useState<AutoApplyConfig>({
-    delaySeconds: 2,
-    language: 'id',
-    tone: 'impactful',
-    autoAnswerQuestions: true,
-    attachPortfolio: true,
-    autoEmailDispatch: true,
+  // Automation Settings with localStorage persistence
+  const [config, setConfig] = useState<AutoApplyConfig>(() => {
+    try {
+      const saved = localStorage.getItem('autolamar_config');
+      return saved
+        ? JSON.parse(saved)
+        : {
+            delaySeconds: 2,
+            language: 'id',
+            tone: 'impactful',
+            autoAnswerQuestions: true,
+            attachPortfolio: true,
+            autoEmailDispatch: true,
+          };
+    } catch {
+      return {
+        delaySeconds: 2,
+        language: 'id',
+        tone: 'impactful',
+        autoAnswerQuestions: true,
+        attachPortfolio: true,
+        autoEmailDispatch: true,
+      };
+    }
   });
 
   // Modals & Active Selections
@@ -140,6 +168,40 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('autolamar_applications', JSON.stringify(applications));
   }, [applications]);
+
+  useEffect(() => {
+    localStorage.setItem('autolamar_config', JSON.stringify(config));
+  }, [config]);
+
+  useEffect(() => {
+    if (currentUser) {
+      localStorage.setItem('autolamar_auth_user', JSON.stringify(currentUser));
+    } else {
+      localStorage.removeItem('autolamar_auth_user');
+    }
+  }, [currentUser]);
+
+  // Handle Login & Register success
+  const handleLoginSuccess = (user: AuthUser, initialProfile?: CandidateProfile) => {
+    setCurrentUser(user);
+    if (initialProfile) {
+      setCandidate(initialProfile);
+    }
+    showToast(`Selamat datang, ${user.name}!`);
+    confetti({
+      particleCount: 80,
+      spread: 70,
+      origin: { y: 0.6 },
+    });
+  };
+
+  // Handle Logout
+  const handleLogout = () => {
+    if (window.confirm('Apakah Anda yakin ingin keluar dari akun?')) {
+      setCurrentUser(null);
+      showToast('Anda telah keluar dari aplikasi.');
+    }
+  };
 
   // Sets for quick lookup
   const queueJobIds = new Set(queue.map((q) => q.job.id));
@@ -189,13 +251,38 @@ export default function App() {
     showToast('Antrean berhasil dikosongkan.');
   };
 
-  // Direct Apply (1-Click)
+  // Direct Apply (1-Click) with server dispatch synchronization
   const handleDirectApply = async (
     job: Job,
     coverLetter: string,
     screeningAnswers: { question: string; answer: string }[]
   ) => {
-    const trackingId = 'APP-' + Date.now().toString(36).toUpperCase();
+    let trackingId = 'APP-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).substring(2, 6).toUpperCase();
+    let mailtoUrl: string | undefined;
+
+    try {
+      const dispatchRes = await fetch('/api/apply/dispatch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          candidate,
+          job,
+          coverLetter,
+          answers: screeningAnswers,
+          deliveryMethod: 'direct_email',
+        }),
+      });
+      const dispatchData = await dispatchRes.json();
+      if (dispatchData.trackingId) {
+        trackingId = dispatchData.trackingId;
+      }
+      if (dispatchData.mailtoUrl) {
+        mailtoUrl = dispatchData.mailtoUrl;
+      }
+    } catch (err) {
+      console.error('Error dispatching direct application:', err);
+    }
+
     const dateFormatted = new Date().toLocaleDateString('id-ID', {
       day: 'numeric',
       month: 'short',
@@ -220,6 +307,7 @@ export default function App() {
       coverLetter,
       screeningAnswers,
       deliveryMethod: 'direct_email',
+      mailtoUrl,
     };
 
     setApplications((prev) => [newApp, ...prev]);
@@ -232,7 +320,74 @@ export default function App() {
       origin: { y: 0.8 },
     });
 
-    showToast(`Lamaran ke ${job.company} sukses dikirim! (No. Resi: ${trackingId})`);
+    showToast(`Lamaran ke ${job.company} sukses dikirim! (No. Resi: ${trackingId}) - Tersinkron ke Lacak`);
+  };
+
+  // Direct apply from a single queue item
+  const handleDirectApplySingle = async (job: Job) => {
+    showToast(`Menyiapkan surat lamaran personal untuk ${job.company}...`);
+    let generatedCoverLetter = `Yth. Tim Rekrutmen & HRD ${job.company},\n\nDengan hormat, sehubungan dengan lowongan ${job.title}, saya bermaksud mengajukan lamaran kerja.\n\nHormat saya,\n${candidate.fullName}\n${candidate.email} | ${candidate.phone}`;
+
+    try {
+      const letterRes = await fetch('/api/ai/generate-cover-letter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          candidate,
+          job,
+          language: config.language,
+          tone: config.tone,
+        }),
+      });
+      const letterData = await letterRes.json();
+      if (letterData.coverLetter) {
+        generatedCoverLetter = letterData.coverLetter;
+      }
+    } catch (err) {
+      console.error(err);
+    }
+
+    let screeningAnswers: { question: string; answer: string }[] = [];
+    if (config.autoAnswerQuestions && job.screeningQuestions && job.screeningQuestions.length > 0) {
+      try {
+        const ansRes = await fetch('/api/ai/answer-screening-questions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            candidate,
+            job,
+            questions: job.screeningQuestions,
+          }),
+        });
+        const ansData = await ansRes.json();
+        if (ansData.answers && Array.isArray(ansData.answers)) {
+          screeningAnswers = job.screeningQuestions.map((q, idx) => ({
+            question: q,
+            answer: ansData.answers[idx] || 'Siap berkontribusi maksimal sesuai kualifikasi.',
+          }));
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    await handleDirectApply(job, generatedCoverLetter, screeningAnswers);
+  };
+
+  // Cross-select job from Tracker or Queue by ID
+  const handleSelectJobById = (jobId: string) => {
+    const found = jobs.find((j) => j.id === jobId);
+    if (found) {
+      setSelectedJobForModal(found);
+    } else {
+      showToast('Lowongan ini dibuat secara khusus dan telah tersimpan di riwayat Anda.');
+    }
+  };
+
+  // Remove single job from queue by Job ID
+  const handleRemoveJobFromQueue = (jobId: string) => {
+    setQueue((prev) => prev.filter((q) => q.job.id !== jobId));
+    showToast('Lowongan berhasil dikeluarkan dari antrean.');
   };
 
   // Update application status
@@ -483,6 +638,21 @@ export default function App() {
 
   const pendingQueueCount = queue.filter((item) => item.status === 'pending').length;
 
+  // If user is not authenticated, display modern Login and Register gateway
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen bg-black text-zinc-100 flex flex-col font-sans">
+        <AuthScreen onLoginSuccess={handleLoginSuccess} />
+        {toastMessage && (
+          <div className="fixed bottom-5 right-5 z-50 bg-zinc-900 border border-zinc-700 text-white text-xs sm:text-sm px-4 py-3 rounded-xl shadow-2xl flex items-center gap-2.5 animate-in slide-in-from-bottom-5 duration-200">
+            <span className="w-2 h-2 rounded-full bg-white" />
+            <span>{toastMessage}</span>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-black text-zinc-100 flex flex-col font-sans">
       {/* Navbar with 3-zone contract */}
@@ -491,6 +661,8 @@ export default function App() {
         setActiveTab={setActiveTab}
         queueCount={pendingQueueCount}
         appliedCount={applications.length}
+        currentUser={currentUser}
+        onLogout={handleLogout}
         onStartAutoApply={() => {
           setActiveTab('queue');
           if (!isProcessingQueue && pendingQueueCount > 0) {
@@ -513,6 +685,7 @@ export default function App() {
             onAddMultipleToQueue={handleAddMultipleToQueue}
             onOpenCustomJobModal={() => setIsCustomJobModalOpen(true)}
             onOpenPortalSyncModal={() => setIsPortalSyncModalOpen(true)}
+            onNavigateToTab={(tab) => setActiveTab(tab)}
           />
         )}
 
@@ -529,6 +702,10 @@ export default function App() {
             config={config}
             setConfig={setConfig}
             onGoToTracker={() => setActiveTab('tracker')}
+            onGoToJobs={() => setActiveTab('jobs')}
+            onSelectJob={(job) => setSelectedJobForModal(job)}
+            onDirectApplySingle={handleDirectApplySingle}
+            onGoToProfile={() => setActiveTab('profile')}
           />
         )}
 
@@ -539,6 +716,8 @@ export default function App() {
             onUpdateStatus={handleUpdateStatus}
             onDeleteRecord={handleDeleteApplication}
             onGoToRadar={() => setActiveTab('jobs')}
+            onSelectJob={handleSelectJobById}
+            onGoToQueue={() => setActiveTab('queue')}
           />
         )}
 
@@ -547,6 +726,10 @@ export default function App() {
             candidate={candidate}
             setCandidate={setCandidate}
             onSaveNotification={() => showToast('Profil berhasil disimpan & disinkronkan!')}
+            jobsCount={jobs.length}
+            queueCount={queue.length}
+            appliedCount={applications.length}
+            onNavigateToTab={(tab) => setActiveTab(tab)}
           />
         )}
       </main>
@@ -559,6 +742,9 @@ export default function App() {
           isOpen={true}
           onClose={() => setSelectedJobForModal(null)}
           onAddToQueue={handleAddJobToQueue}
+          onRemoveFromQueue={handleRemoveJobFromQueue}
+          onNavigateToTracker={() => setActiveTab('tracker')}
+          onNavigateToQueue={() => setActiveTab('queue')}
           isInQueue={queueJobIds.has(selectedJobForModal.id)}
           isApplied={appliedJobIds.has(selectedJobForModal.id)}
           onDirectApply={handleDirectApply}

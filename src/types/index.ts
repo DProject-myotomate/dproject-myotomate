@@ -114,3 +114,13 @@ export interface AutoApplyConfig {
   attachPortfolio: boolean;
   autoEmailDispatch: boolean;
 }
+
+export interface AuthUser {
+  id: string;
+  name: string;
+  email: string;
+  targetRole?: string;
+  avatar?: string;
+  createdAt: string;
+}
+

@@ -18,6 +18,8 @@ interface ApplicationTrackerProps {
   onUpdateStatus: (id: string, newStatus: ApplicationStatus) => void;
   onDeleteRecord: (id: string) => void;
   onGoToRadar: () => void;
+  onSelectJob?: (jobId: string) => void;
+  onGoToQueue?: () => void;
 }
 
 export const ApplicationTracker: React.FC<ApplicationTrackerProps> = ({
@@ -26,6 +28,8 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = ({
   onUpdateStatus,
   onDeleteRecord,
   onGoToRadar,
+  onSelectJob,
+  onGoToQueue,
 }) => {
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
@@ -248,7 +252,13 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = ({
                 {/* Left: Info */}
                 <div className="space-y-1.5 flex-1 min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-base font-semibold text-white truncate">
+                    <h3
+                      onClick={() => onSelectJob && onSelectJob(app.jobId)}
+                      className={`text-base font-semibold text-white truncate ${
+                        onSelectJob ? 'cursor-pointer hover:text-zinc-300' : ''
+                      }`}
+                      title={onSelectJob ? 'Klik untuk melihat detail lowongan asli di menu Jobs' : undefined}
+                    >
                       {app.jobTitle}
                     </h3>
                     <span className="text-xs text-zinc-500">di</span>
@@ -365,7 +375,20 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = ({
               </div>
             )}
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-zinc-800">
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-zinc-800">
+              {onSelectJob ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const jobId = selectedForDetail.jobId;
+                    setSelectedForDetail(null);
+                    onSelectJob(jobId);
+                  }}
+                  className="px-3.5 py-1.5 text-xs font-medium text-white bg-zinc-900 hover:bg-zinc-800 rounded-lg border border-zinc-700 transition-colors"
+                >
+                  Buka Detail Lowongan di Jobs &rarr;
+                </button>
+              ) : <div />}
               <button
                 onClick={() => setSelectedForDetail(null)}
                 className="px-4 py-1.5 text-xs font-medium text-zinc-300 bg-zinc-900 hover:bg-zinc-800 rounded-lg border border-zinc-800"

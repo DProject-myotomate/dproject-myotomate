@@ -20,6 +20,9 @@ interface JobDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAddToQueue: (job: Job) => void;
+  onRemoveFromQueue?: (jobId: string) => void;
+  onNavigateToTracker?: () => void;
+  onNavigateToQueue?: () => void;
   isInQueue: boolean;
   isApplied: boolean;
   onDirectApply: (job: Job, coverLetter: string, answers: { question: string; answer: string }[]) => void;
@@ -31,6 +34,9 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
   isOpen,
   onClose,
   onAddToQueue,
+  onRemoveFromQueue,
+  onNavigateToTracker,
+  onNavigateToQueue,
   isInQueue,
   isApplied,
   onDirectApply,
@@ -169,6 +175,17 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                 <span>{job.location}</span>
                 <span aria-hidden="true">·</span>
                 <span className="text-white font-mono font-medium">{job.salaryRange}</span>
+              </div>
+
+              {/* Applicant Sync Pill */}
+              <div className="flex flex-wrap items-center gap-2 text-xs mt-2 pt-2 border-t border-zinc-800/80">
+                <span className="text-zinc-500 text-[11px]">Pelamar:</span>
+                <span className="text-white font-medium text-[11px] bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded">
+                  {candidate.fullName} · {candidate.primaryRole}
+                </span>
+                <span className="font-mono text-zinc-300 text-[11px] bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded">
+                  ATS: {baseMatch.score}%
+                </span>
               </div>
             </div>
           </div>
@@ -572,8 +589,50 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
               </a>
             )}
 
+            {isApplied && onNavigateToTracker && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onNavigateToTracker();
+                }}
+                className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-white bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 rounded-lg transition-colors"
+              >
+                <span>Lihat di Lacak</span>
+              </button>
+            )}
+
+            {isInQueue && (
+              <>
+                {onNavigateToQueue && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onNavigateToQueue();
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-zinc-300 hover:text-white bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 rounded-lg transition-colors"
+                  >
+                    <span>Buka Antrean</span>
+                  </button>
+                )}
+                {onRemoveFromQueue && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onRemoveFromQueue(job.id);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-zinc-400 hover:text-white hover:bg-zinc-900 border border-zinc-800 rounded-lg transition-colors"
+                  >
+                    <span>Keluarkan dari Antrean</span>
+                  </button>
+                )}
+              </>
+            )}
+
             {!isInQueue && !isApplied && (
               <button
+                type="button"
                 onClick={() => {
                   onAddToQueue(job);
                   onClose();
@@ -586,6 +645,7 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
             )}
 
             <button
+              type="button"
               onClick={() => {
                 const finalLetter = coverLetter || `Yth. Tim Rekrutmen ${job.company},\n\nSaya bermaksud melamar untuk posisi ${job.title}.\n\nHormat saya,\n${candidate.fullName}`;
                 onDirectApply(job, finalLetter, screeningAnswers);

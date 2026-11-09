@@ -1,5 +1,6 @@
 import React from 'react';
-import { Sparkles, Play } from 'lucide-react';
+import { Sparkles, Play, LogOut, User } from 'lucide-react';
+import { AuthUser } from '../types';
 
 interface NavbarProps {
   activeTab: 'jobs' | 'queue' | 'tracker' | 'profile';
@@ -8,6 +9,8 @@ interface NavbarProps {
   appliedCount: number;
   onStartAutoApply: () => void;
   isProcessingQueue: boolean;
+  currentUser?: AuthUser | null;
+  onLogout?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -17,6 +20,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   appliedCount,
   onStartAutoApply,
   isProcessingQueue,
+  currentUser,
+  onLogout,
 }) => {
   return (
     <header className="sticky top-0 z-40 bg-black/95 backdrop-blur-md border-b border-zinc-800">
@@ -90,8 +95,8 @@ export const Navbar: React.FC<NavbarProps> = ({
           </button>
         </nav>
 
-        {/* Zone 3: Primary Action - High contrast Black & White button */}
-        <div className="flex items-center gap-3 shrink-0">
+        {/* Zone 3: Primary Action - Apply button and User Profile / Logout */}
+        <div className="flex items-center gap-2.5 shrink-0">
           <button
             onClick={onStartAutoApply}
             disabled={isProcessingQueue}
@@ -118,43 +123,97 @@ export const Navbar: React.FC<NavbarProps> = ({
               </>
             )}
           </button>
+
+          {/* User Account & Logout */}
+          {currentUser && (
+            <div className="hidden sm:flex items-center gap-2 pl-2 border-l border-zinc-800">
+              <button
+                type="button"
+                onClick={() => setActiveTab('profile')}
+                className="flex items-center gap-2 p-1.5 hover:bg-zinc-900 rounded-lg text-left transition-colors"
+                title="Buka Profil Anda"
+              >
+                <div className="w-7 h-7 rounded-full bg-zinc-800 border border-zinc-700 text-white flex items-center justify-center text-xs font-bold font-mono">
+                  {currentUser.name
+                    .split(' ')
+                    .map((n) => n[0])
+                    .join('')
+                    .slice(0, 2)
+                    .toUpperCase()}
+                </div>
+                <div className="hidden lg:block text-left pr-1">
+                  <p className="text-xs font-semibold text-zinc-200 leading-tight truncate max-w-[110px]">
+                    {currentUser.name}
+                  </p>
+                  <p className="text-[10px] text-zinc-500 font-mono truncate max-w-[110px]">
+                    {currentUser.targetRole || 'Pelamar Aktif'}
+                  </p>
+                </div>
+              </button>
+
+              {onLogout && (
+                <button
+                  type="button"
+                  onClick={onLogout}
+                  className="p-1.5 text-zinc-400 hover:text-red-400 hover:bg-zinc-900 rounded-lg transition-colors border border-zinc-800 flex items-center gap-1 text-xs"
+                  title="Keluar dari akun"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span className="hidden xl:inline text-[11px]">Keluar</span>
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
       {/* Mobile nav bar row */}
-      <div className="flex md:hidden border-t border-zinc-800 bg-zinc-950 px-3 py-2 overflow-x-auto gap-3 text-xs font-medium text-zinc-400">
-        <button
-          onClick={() => setActiveTab('jobs')}
-          className={`whitespace-nowrap px-2.5 py-1 rounded ${
-            activeTab === 'jobs' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'
-          }`}
-        >
-          Jobs
-        </button>
-        <button
-          onClick={() => setActiveTab('queue')}
-          className={`whitespace-nowrap px-2.5 py-1 rounded flex items-center gap-1 ${
-            activeTab === 'queue' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'
-          }`}
-        >
-          Antrean ({queueCount})
-        </button>
-        <button
-          onClick={() => setActiveTab('tracker')}
-          className={`whitespace-nowrap px-2.5 py-1 rounded flex items-center gap-1 ${
-            activeTab === 'tracker' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'
-          }`}
-        >
-          Lacak ({appliedCount})
-        </button>
-        <button
-          onClick={() => setActiveTab('profile')}
-          className={`whitespace-nowrap px-2.5 py-1 rounded ${
-            activeTab === 'profile' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'
-          }`}
-        >
-          Profile
-        </button>
+      <div className="flex md:hidden border-t border-zinc-800 bg-zinc-950 px-3 py-2 overflow-x-auto justify-between items-center text-xs font-medium text-zinc-400">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setActiveTab('jobs')}
+            className={`whitespace-nowrap px-2.5 py-1 rounded ${
+              activeTab === 'jobs' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            Jobs
+          </button>
+          <button
+            onClick={() => setActiveTab('queue')}
+            className={`whitespace-nowrap px-2.5 py-1 rounded flex items-center gap-1 ${
+              activeTab === 'queue' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            Antrean ({queueCount})
+          </button>
+          <button
+            onClick={() => setActiveTab('tracker')}
+            className={`whitespace-nowrap px-2.5 py-1 rounded flex items-center gap-1 ${
+              activeTab === 'tracker' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            Lacak ({appliedCount})
+          </button>
+          <button
+            onClick={() => setActiveTab('profile')}
+            className={`whitespace-nowrap px-2.5 py-1 rounded ${
+              activeTab === 'profile' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            Profile
+          </button>
+        </div>
+
+        {currentUser && onLogout && (
+          <button
+            type="button"
+            onClick={onLogout}
+            className="text-zinc-400 hover:text-red-400 px-2 py-1 rounded hover:bg-zinc-900 flex items-center gap-1 text-xs shrink-0"
+          >
+            <LogOut className="w-3 h-3" />
+            <span>Keluar</span>
+          </button>
+        )}
       </div>
     </header>
   );
