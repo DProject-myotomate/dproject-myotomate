@@ -126,14 +126,18 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* User Account & Logout */}
           {currentUser && (
-            <div className="hidden sm:flex items-center gap-2 pl-2 border-l border-zinc-800">
+            <div className="flex items-center gap-1.5 sm:gap-2 pl-2 border-l border-zinc-800">
               <button
                 type="button"
                 onClick={() => setActiveTab('profile')}
-                className="flex items-center gap-2 p-1.5 hover:bg-zinc-900 rounded-lg text-left transition-colors"
-                title="Buka Profil Anda"
+                className={`flex items-center gap-2 p-1.5 rounded-lg text-left transition-all cursor-pointer ${
+                  activeTab === 'profile'
+                    ? 'bg-zinc-800 text-white border border-zinc-600 ring-1 ring-zinc-500/40'
+                    : 'hover:bg-zinc-900 text-zinc-300 hover:text-white border border-transparent'
+                }`}
+                title="Buka menu Profile"
               >
-                <div className="w-7 h-7 rounded-full bg-zinc-800 border border-zinc-700 text-white flex items-center justify-center text-xs font-bold font-mono">
+                <div className="w-7 h-7 rounded-full bg-white text-black flex items-center justify-center text-xs font-bold font-mono shrink-0 shadow-sm">
                   {currentUser.name
                     .split(' ')
                     .map((n) => n[0])
@@ -141,12 +145,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                     .slice(0, 2)
                     .toUpperCase()}
                 </div>
-                <div className="hidden lg:block text-left pr-1">
-                  <p className="text-xs font-semibold text-zinc-200 leading-tight truncate max-w-[110px]">
+                <div className="hidden sm:block text-left pr-1">
+                  <p className="text-xs font-semibold text-zinc-200 truncate max-w-[140px]">
                     {currentUser.name}
-                  </p>
-                  <p className="text-[10px] text-zinc-500 font-mono truncate max-w-[110px]">
-                    {currentUser.targetRole || 'Pelamar Aktif'}
                   </p>
                 </div>
               </button>
@@ -155,11 +156,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <button
                   type="button"
                   onClick={onLogout}
-                  className="p-1.5 text-zinc-400 hover:text-red-400 hover:bg-zinc-900 rounded-lg transition-colors border border-zinc-800 flex items-center gap-1 text-xs"
-                  title="Keluar dari akun"
+                  className="px-2 py-1.5 text-zinc-400 hover:text-white hover:bg-zinc-900 rounded-lg transition-colors border border-zinc-800 flex items-center gap-1.5 text-xs shrink-0 cursor-pointer"
+                  title="Keluar dari akun dan kembali ke halaman login"
                 >
-                  <LogOut className="w-3.5 h-3.5" />
-                  <span className="hidden xl:inline text-[11px]">Keluar</span>
+                  <LogOut className="w-3.5 h-3.5 text-zinc-400" />
+                  <span className="hidden md:inline text-[11px]">Keluar</span>
                 </button>
               )}
             </div>

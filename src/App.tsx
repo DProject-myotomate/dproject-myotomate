@@ -195,12 +195,10 @@ export default function App() {
     });
   };
 
-  // Handle Logout
+  // Handle Logout - directly clears session and brings up login dashboard
   const handleLogout = () => {
-    if (window.confirm('Apakah Anda yakin ingin keluar dari akun?')) {
-      setCurrentUser(null);
-      showToast('Anda telah keluar dari aplikasi.');
-    }
+    setCurrentUser(null);
+    showToast('Anda telah keluar dari aplikasi.');
   };
 
   // Sets for quick lookup

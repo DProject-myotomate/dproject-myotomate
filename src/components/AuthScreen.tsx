@@ -110,24 +110,19 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess }) => {
         (acc) => acc.user.email.toLowerCase() === emailTrimmed
       );
 
+      // Hanya izinkan user yang sudah terdaftar
       if (!matched) {
-        // If not found in database, check if it's a valid demo or allow sign-in with default profile
-        const newAuthUser: AuthUser = {
-          id: 'user-' + Date.now(),
-          name: emailTrimmed.split('@')[0].replace('.', ' '),
-          email: emailTrimmed,
-          targetRole: 'Software Engineer',
-          createdAt: new Date().toISOString(),
-        };
         setIsLoading(false);
-        setSuccessMsg('Berhasil masuk!');
-        onLoginSuccess(newAuthUser);
+        setErrorMsg(
+          'Akun belum terdaftar. Silakan lakukan pendaftaran terlebih dahulu melalui tab Daftar Akun.'
+        );
         return;
       }
 
-      if (matched.passwordHash !== loginPassword && loginPassword !== 'password123') {
+      // Validasi kecocokan kata sandi
+      if (matched.passwordHash !== loginPassword) {
         setIsLoading(false);
-        setErrorMsg('Kata sandi yang Anda masukkan salah.');
+        setErrorMsg('Kata sandi yang Anda masukkan salah. Silakan periksa kembali.');
         return;
       }
 
@@ -395,6 +390,23 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess }) => {
                 </>
               )}
             </button>
+
+            <div className="pt-3 text-center">
+              <p className="text-xs text-zinc-400">
+                Belum memiliki akun terdaftar?{' '}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('register');
+                    setErrorMsg(null);
+                    setSuccessMsg(null);
+                  }}
+                  className="text-white font-semibold underline underline-offset-4 hover:text-zinc-200 transition-colors"
+                >
+                  Daftar Sekarang
+                </button>
+              </p>
+            </div>
           </form>
         )}
 
@@ -528,6 +540,23 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess }) => {
                 </>
               )}
             </button>
+
+            <div className="pt-2 text-center">
+              <p className="text-xs text-zinc-400">
+                Sudah memiliki akun terdaftar?{' '}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('login');
+                    setErrorMsg(null);
+                    setSuccessMsg(null);
+                  }}
+                  className="text-white font-semibold underline underline-offset-4 hover:text-zinc-200 transition-colors"
+                >
+                  Masuk di sini
+                </button>
+              </p>
+            </div>
           </form>
         )}
       </div>
