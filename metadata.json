@@ -1,0 +1,8 @@
+{
+  "name": "My Otomate",
+  "description": "Platform otomasi lamaran kerja pintar: kurasi lowongan, penyesuaian CV ATS, pembuatan surat lamaran personal, dan pengiriman batch terotomasi.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
