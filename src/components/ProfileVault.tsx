@@ -332,42 +332,6 @@ export const ProfileVault: React.FC<ProfileVaultProps> = ({
     }
   };
 
-  // Load realistic sample CV to test automatic extraction with empty-while-processing flow
-  const handleLoadSampleCV = () => {
-    const sampleCVContent = `CURRICULUM VITAE ATS COMPLIANT
-
-Nama Lengkap: Budi Santoso
-Email: budi.santoso.dev@gmail.com
-No. HP / WhatsApp: +62 812-9876-5432
-Domisili: Jakarta Selatan, DKI Jakarta
-Ekspektasi Gaji: Rp 22.000.000 - Rp 28.000.000 / bulan
-Ketersediaan: Immediately (Siap bergabung segera)
-LinkedIn: linkedin.com/in/budisantoso-dev
-GitHub: github.com/budisantoso-tech
-Portofolio: budisantoso.dev
-
-RINGKASAN PROFESIONAL
-Senior Fullstack Software Engineer dengan 4+ tahun pengalaman dalam membangun aplikasi berskala besar, sistem microservices ber-traffic tinggi, dan antarmuka web performa tinggi. Mahir dalam ekosistem React, TypeScript, Next.js, Node.js, Express, dan PostgreSQL.
-
-KEAHLIAN
-React, TypeScript, Node.js, Next.js, Express, PostgreSQL, Redis, Docker, Tailwind CSS, REST API, GraphQL, Git, CI/CD, Agile / Scrum, Unit Testing, Microservices
-
-PENGALAMAN KERJA
-1. Senior Software Engineer - PT Solusi Digital Nusantara (2022 - Sekarang)
-Memimpin arsitektur antarmuka dan API payment gateway dengan volume transaksi harian >120.000. Memangkas page latency 40% dan mengorkestrasi deployment dengan Docker.
-
-2. Fullstack Web Developer - PT Inovasi Media Kreatif (2020 - 2022)
-Membangun web dashboard analytics responsif dengan React dan backend REST API berbasis Node.js dan PostgreSQL.
-
-RIWAYAT PENDIDIKAN
-S1 Teknik Informatika - Institut Teknologi Bandung (ITB) (Lulus 2020)
-`;
-
-    const sampleFile = new File([sampleCVContent], 'CV_Budi_Santoso_ATS.txt', {
-      type: 'text/plain',
-    });
-    processFile(sampleFile);
-  };
 
   // Switch preset profile for instant testing
   const handleSelectPreset = (presetId: string) => {
@@ -805,19 +769,9 @@ S1 Teknik Informatika - Institut Teknologi Bandung (ITB) (Lulus 2020)
             <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
-                onClick={handleLoadSampleCV}
-                disabled={isExtracting}
-                className="px-3 py-1.5 rounded bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-zinc-200 text-[11px] font-medium transition-colors flex items-center gap-1.5"
-                title="Gunakan contoh berkas CV terformat ATS untuk pengujian ekstraksi"
-              >
-                <FileText className="w-3.5 h-3.5 text-zinc-400" />
-                <span>Uji Contoh CV ATS</span>
-              </button>
-              <button
-                type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isExtracting}
-                className="px-3 py-1.5 rounded bg-white hover:bg-zinc-200 text-black text-[11px] font-semibold transition-colors flex items-center gap-1.5"
+                className="px-3 py-1.5 rounded bg-white hover:bg-zinc-200 text-black text-[11px] font-semibold transition-colors flex items-center gap-1.5 shadow-sm active:scale-95"
               >
                 <FileUp className="w-3.5 h-3.5" />
                 <span>Unggah CV</span>
@@ -969,44 +923,6 @@ S1 Teknik Informatika - Institut Teknologi Bandung (ITB) (Lulus 2020)
             </div>
           </div>
 
-          {/* Interactive Resume Card */}
-          <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 space-y-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-zinc-900 border border-zinc-700 flex items-center justify-center text-white shrink-0">
-                <FileText className="w-5 h-5" />
-              </div>
-              <div className="flex-1 min-w-0 text-xs">
-                <span className="font-semibold text-white block truncate">
-                  {candidate.resumeFileName || 'Belum Ada CV Terlampir'}
-                </span>
-                <span className="text-zinc-400 block text-[11px] truncate">
-                  {candidate.resumeFileSize || 'Lampirkan untuk auto-fill profil'}
-                </span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 pt-1 border-t border-zinc-800/80">
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isExtracting}
-                className="flex-1 py-1.5 px-3 text-xs font-medium bg-white hover:bg-zinc-200 text-black rounded-lg transition-colors flex items-center justify-center gap-1.5"
-              >
-                <FileUp className="w-3.5 h-3.5" />
-                <span>{candidate.resumeFileName ? 'Ganti CV' : 'Lampirkan CV'}</span>
-              </button>
-              {candidate.resumeFileName && (
-                <button
-                  type="button"
-                  onClick={handleRemoveAttachedCV}
-                  className="p-1.5 rounded-lg border border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-red-400 transition-colors"
-                  title="Hapus berkas"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-          </div>
         </div>
 
         {/* Right Column: Professional Role, Summary, Skills, Experience */}
@@ -1015,7 +931,7 @@ S1 Teknik Informatika - Institut Teknologi Bandung (ITB) (Lulus 2020)
           <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-5 space-y-4">
             <div className="flex items-center justify-between pb-1 border-b border-zinc-800/60">
               <span className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">
-                Target Peran & Ringkasan
+                Ringkasan
               </span>
               {candidate.resumeFileName && !isExtracting && (
                 <span className="text-[10px] text-zinc-400 font-mono bg-zinc-900 px-2 py-0.5 rounded border border-zinc-800">
@@ -1056,7 +972,7 @@ S1 Teknik Informatika - Institut Teknologi Bandung (ITB) (Lulus 2020)
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <label className="block text-xs text-zinc-400 font-medium">
-                  Ringkasan Profil Profesional (Untuk ATS)
+                  Ringkasan Profil Profesional
                 </label>
                 <button
                   type="button"

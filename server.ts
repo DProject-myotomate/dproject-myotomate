@@ -1,5 +1,5 @@
 import express from 'express';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -424,18 +424,26 @@ function generateHeuristicProfile(fileName = '', fileText = ''): any {
 
 // API: Parse & Extract CV Document with Gemini 3.8 Flash
 app.post('/api/ai/parse-resume', async (req, res) => {
-  try {
-    const { fileName, fileType, fileSize, fileData, fileText } = req.body;
+  const { fileName, fileType, fileSize, fileData, fileText } = req.body || {};
 
-    if (!fileData && !fileText) {
-      return res.status(400).json({ error: 'Berkas atau teks CV diperlukan' });
-    }
+  if (!fileData && !fileText) {
+    return res.status(400).json({ error: 'Berkas atau teks CV diperlukan' });
+  }
 
-    if (ai) {
+  const fallbackProfile = generateHeuristicProfile(fileName, fileText);
+
+  if (ai) {
+    try {
       const contents: any[] = [];
+      const hasExtractedText = fileText && typeof fileText === 'string' && fileText.trim().length > 40;
 
-      // Always pass the raw file as inlineData when available (multimodal PDF / image)
-      if (fileData) {
+      // 1. If text is extracted from document, feed it directly (fast, lightweight, token-efficient)
+      if (hasExtractedText) {
+        contents.push({
+          text: `Isi teks dokumen CV "${fileName || 'Resume'}":\n${fileText.substring(0, 25000)}`,
+        });
+      } else if (fileData) {
+        // 2. Multimodal fallback: pass PDF / Image base64 if no direct text available
         const base64Data = fileData.includes(';base64,') ? fileData.split(';base64,')[1] : fileData;
         let mime = fileType;
         if (!mime || mime === 'application/octet-stream') {
@@ -457,53 +465,29 @@ app.post('/api/ai/parse-resume', async (req, res) => {
         }
       }
 
-      // Also include any extracted text as supplementary context
-      if (fileText && fileText.trim().length > 0) {
-        contents.push({
-          text: `Teks yang diekstrak dari berkas CV "${fileName || 'Resume'}":\n${fileText.substring(0, 30000)}`,
-        });
-      }
-
-      const prompt = `Anda adalah sistem parser CV / Resume tingkat enterprise.
-Tugas Anda adalah membaca berkas CV "${fileName || 'Resume'}" yang dilampirkan ini secara menyeluruh, dan mengekstrak SELURUH data kandidat yang tertulis di dalam dokumen CV ini.
+      const prompt = `Anda adalah parser CV tingkat enterprise.
+Tugas Anda adalah membaca berkas CV "${fileName || 'Resume'}" dan mengekstrak data kandidat dari isi berkas ini.
 
 PENTING:
-1. Ambil data ASLI dari isi berkas CV ini. Jangan gunakan nama atau data dummy fiktif jika ada data di CV.
-2. Identitas & Kontak Utama:
+1. Ambil data ASLI dari isi berkas CV ini.
+2. Identitas & Kontak:
    - fullName: Nama lengkap asli kandidat dari CV
    - email: Alamat email asli kandidat dari CV
    - phone: Nomor HP / WhatsApp asli dari CV
-   - location: Domisili / kota kandidat dari CV (contoh: "Jakarta Selatan, DKI Jakarta", "Bandung", dsb.)
-   - expectedSalary: Ekspektasi gaji jika disebutkan di CV, atau kosongkan / estimasi realistis standar industri
+   - location: Domisili / kota kandidat dari CV
+   - expectedSalary: Ekspektasi gaji jika ada, atau estimasi realistis standar industri
 3. Profesi & Pengalaman:
    - primaryRole: Profesi atau jabatan utama/terkini kandidat dari CV
-   - experienceYears: Total tahun pengalaman kerja yang tercermin dari riwayat kerja (angka integer)
-   - summary: Ringkasan profil profesional eksekutif 2-4 kalimat yang merefleksikan keahlian dan riwayat asli kandidat dari CV
+   - experienceYears: Total tahun pengalaman kerja (integer)
+   - summary: Ringkasan profil profesional eksekutif 2-3 kalimat
 4. Keahlian:
-   - skills: Array string berisi SEMUA keterampilan teknis, tools, framework, software, dan keahlian yang tercantum di CV
-5. Riwayat Pengalaman Kerja (experience):
-   - Array objek berisi setiap pengalaman kerja yang tertulis di CV:
-     [
-       {
-         "role": "Posisi / Jabatan",
-         "company": "Nama Perusahaan / Organisasi",
-         "period": "Periode kerja (contoh: '2022 - Sekarang' atau 'Jan 2021 - Des 2022')",
-         "description": "Deskripsi tanggung jawab, pencapaian, dan teknologi yang digunakan dari CV"
-       }
-     ]
-6. Riwayat Pendidikan (education):
-   - Array objek berisi riwayat pendidikan dari CV:
-     [
-       {
-         "degree": "Gelar / Program Studi",
-         "institution": "Nama Universitas / Institusi / Sekolah",
-         "graduationYear": "Tahun Kelulusan (contoh: '2021')"
-       }
-     ]
+   - skills: Array string berisi semua keterampilan teknis, tools, framework, software yang tertulis di CV
+5. Riwayat Pengalaman Kerja:
+   - experience: Array objek [{ "role": string, "company": string, "period": string, "description": string }]
+6. Riwayat Pendidikan:
+   - education: Array objek [{ "degree": string, "institution": string, "graduationYear": string }]
 7. Tautan Jejaring:
-   - linkedin: Tautan / username LinkedIn dari CV jika ada
-   - github: Tautan / username GitHub dari CV jika ada
-   - portfolio: Tautan website portofolio dari CV jika ada
+   - linkedin, github, portfolio
 
 Kembalikan WAJIB HANYA JSON MURNI TANPA MARKDOWN BACKTICKS:
 {
@@ -539,23 +523,44 @@ Kembalikan WAJIB HANYA JSON MURNI TANPA MARKDOWN BACKTICKS:
 
       contents.push({ text: prompt });
 
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('AI extraction timed out, using fast extractor')), 4000)
-      );
+      // Clean timeout without leaking timers or throwing uncaught exceptions
+      let timeoutHandle: NodeJS.Timeout | null = null;
+      const timeoutPromise = new Promise<{ timedOut: true }>((resolve) => {
+        timeoutHandle = setTimeout(() => resolve({ timedOut: true }), 9000);
+      });
 
-      const response: any = await Promise.race([
+      const raceResult: any = await Promise.race([
         ai.models.generateContent({
           model: 'gemini-3.8-flash',
           contents,
           config: {
             responseMimeType: 'application/json',
-            thinkingConfig: { thinkingBudget: 0 },
+            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
           },
         }),
         timeoutPromise,
       ]);
 
-      const parsed = JSON.parse(response.text || '{}');
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
+
+      if (raceResult && raceResult.timedOut) {
+        // Smoothly fall back to heuristic extraction without error logging
+        return res.json({
+          success: true,
+          candidate: {
+            ...fallbackProfile,
+            resumeFileName: fileName || 'CV_Pelamar.pdf',
+            resumeFileSize: fileSize || 'Terunggah',
+          },
+          source: 'heuristic',
+        });
+      }
+
+      const text = raceResult?.text || '{}';
+      const parsed = JSON.parse(text);
+
       return res.json({
         success: true,
         candidate: {
@@ -565,33 +570,30 @@ Kembalikan WAJIB HANYA JSON MURNI TANPA MARKDOWN BACKTICKS:
         },
         source: 'gemini',
       });
+    } catch (aiErr: any) {
+      // Graceful degradation when Gemini is unavailable (503 high demand, quota, or network)
+      return res.json({
+        success: true,
+        candidate: {
+          ...fallbackProfile,
+          resumeFileName: fileName || 'CV_Pelamar.pdf',
+          resumeFileSize: fileSize || 'Terunggah',
+        },
+        source: 'heuristic',
+      });
     }
-
-    // Heuristic Fallback
-    const fallbackProfile = generateHeuristicProfile(fileName, fileText);
-    return res.json({
-      success: true,
-      candidate: {
-        ...fallbackProfile,
-        resumeFileName: fileName || 'CV_Pelamar.pdf',
-        resumeFileSize: fileSize || 'Terunggah',
-      },
-      source: 'heuristic',
-    });
-  } catch (err: any) {
-    console.error('Error in /api/ai/parse-resume:', err);
-    const fallbackProfile = generateHeuristicProfile(req.body?.fileName, req.body?.fileText);
-    return res.json({
-      success: true,
-      candidate: {
-        ...fallbackProfile,
-        resumeFileName: req.body?.fileName || 'CV_Pelamar.pdf',
-        resumeFileSize: req.body?.fileSize || 'Terunggah',
-      },
-      source: 'fallback',
-      warning: err.message,
-    });
   }
+
+  // If AI client not initialized, return heuristic parser
+  return res.json({
+    success: true,
+    candidate: {
+      ...fallbackProfile,
+      resumeFileName: fileName || 'CV_Pelamar.pdf',
+      resumeFileSize: fileSize || 'Terunggah',
+    },
+    source: 'heuristic',
+  });
 });
 
 // API: Dispatch / Track Application Submission
