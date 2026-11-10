@@ -146,57 +146,57 @@ export const ProfileVault: React.FC<ProfileVaultProps> = ({
     }
   };
 
+  const lastAttachedFileRef = useRef<File | null>(null);
+
   const processFile = async (file: File) => {
     if (!file) return;
+    lastAttachedFileRef.current = file;
     setIsExtracting(true);
     setExtractError(null);
     setExtractSuccess(false);
-    setExtractionStep(`Membaca cepat berkas ${file.name}...`);
+    setExtractionStep(`Membaca dan memindai berkas ${file.name}...`);
+
+    const fileSizeFormatted = formatFileSize(file.size);
+
+    // KETENTUAN: Jika masih diproses, biarkan sementara data kosong
+    setCandidate((prev) => ({
+      id: prev.id,
+      fullName: '',
+      email: '',
+      phone: '',
+      location: '',
+      primaryRole: '',
+      experienceYears: 0,
+      expectedSalary: '',
+      availability: '',
+      linkedin: '',
+      github: '',
+      portfolio: '',
+      summary: '',
+      skills: [],
+      experience: [],
+      education: [],
+      resumeFileName: file.name,
+      resumeFileSize: `${fileSizeFormatted} (Sedang diproses...)`,
+    }));
 
     try {
-      const fileSizeFormatted = formatFileSize(file.size);
-
-      // Step 1: Ultra-fast local text extraction (<30ms)
+      // Step 1: Ekstraksi teks cepat lokal jika tersedia (untuk TXT, MD, DOCX, dsb.)
+      setExtractionStep('Membaca isi teks dokumen...');
       const extractedText = await quickExtractTextFromFile(file);
-      const hasSubstantialText = extractedText.trim().length >= 40;
 
-      // Step 2: Instant optimistic prefill for instantaneous visual feedback (<50ms)
-      const baseName = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
-      const nameParts = baseName
-        .split(' ')
-        .filter((p) => !['cv', 'resume', 'ats', 'curriculum', 'vitae', 'pdf', 'docx', 'doc'].includes(p.toLowerCase()));
-      const probableName =
-        nameParts.length > 0
-          ? nameParts.slice(0, 3).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
-          : '';
-      const emailMatch = extractedText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-      const phoneMatch = extractedText.match(/(\+62|62|08)[0-9\- ]{8,14}/);
+      // Step 2: Baca berkas mentah sebagai DataURL base64 untuk pemindaian multimodal (PDF, Gambar)
+      setExtractionStep('Membaca struktur berkas digital...');
+      const fileData = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
 
-      // Instant responsive feedback: update name/email/phone & attach status right away
-      setCandidate((prev) => ({
-        ...prev,
-        fullName: probableName || prev.fullName,
-        email: emailMatch ? emailMatch[0] : prev.email,
-        phone: phoneMatch ? phoneMatch[0] : prev.phone,
-        resumeFileName: file.name,
-        resumeFileSize: `${fileSizeFormatted} (Memproses sinkronisasi...)`,
-      }));
+      setExtractionStep('AI mengekstrak identitas, kontak, keahlian, pengalaman, dan pendidikan dari CV...');
 
-      // Step 3: Only read heavy base64 data if no text was extracted locally
-      let fileData = '';
-      if (!hasSubstantialText) {
-        setExtractionStep('Menyiapkan pemindaian dokumen...');
-        fileData = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-      }
-
-      setExtractionStep('AI menyinkronkan profil, keahlian, pengalaman, dan pendidikan...');
-
-      // Step 4: Rapid AI Extraction with thinkingBudget: 0
+      // Step 3: Kirim ke server endpoint AI parsing
       const response = await fetch('/api/ai/parse-resume', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -211,48 +211,48 @@ export const ProfileVault: React.FC<ProfileVaultProps> = ({
 
       const resData = await response.json();
       if (resData.success && resData.candidate) {
-        setExtractionStep('Menyelesaikan sinkronisasi profil...');
+        setExtractionStep('Menerapkan data hasil ekstraksi CV ke profil...');
         const parsed = resData.candidate;
+
         try {
           localStorage.setItem(`autolamar_manual_cv_${candidate.id}`, 'true');
         } catch {}
 
-        setCandidate((prev) => ({
-          ...prev,
-          fullName: parsed.fullName || prev.fullName || probableName,
-          email: parsed.email || prev.email || (emailMatch ? emailMatch[0] : ''),
-          phone: parsed.phone || prev.phone || (phoneMatch ? phoneMatch[0] : ''),
-          location: parsed.location || prev.location,
-          primaryRole: parsed.primaryRole || prev.primaryRole,
+        // KETENTUAN: Gunakan isi data yang sudah dilampirkan dari berkas CV
+        const updatedCandidate: CandidateProfile = {
+          id: candidate.id,
+          fullName: parsed.fullName || '',
+          email: parsed.email || '',
+          phone: parsed.phone || '',
+          location: parsed.location || '',
+          primaryRole: parsed.primaryRole || '',
           experienceYears:
             typeof parsed.experienceYears === 'number'
               ? parsed.experienceYears
-              : prev.experienceYears,
-          expectedSalary: parsed.expectedSalary || prev.expectedSalary,
-          availability: parsed.availability || prev.availability,
-          linkedin: parsed.linkedin || prev.linkedin,
-          github: parsed.github || prev.github,
-          portfolio: parsed.portfolio || prev.portfolio,
-          summary: parsed.summary || prev.summary,
-          skills:
-            Array.isArray(parsed.skills) && parsed.skills.length > 0
-              ? parsed.skills
-              : prev.skills,
-          experience:
-            Array.isArray(parsed.experience) && parsed.experience.length > 0
-              ? parsed.experience
-              : prev.experience,
-          education:
-            Array.isArray(parsed.education) && parsed.education.length > 0
-              ? parsed.education
-              : prev.education,
+              : Number(parsed.experienceYears) || 0,
+          expectedSalary: parsed.expectedSalary || '',
+          availability: parsed.availability || 'Immediately',
+          linkedin: parsed.linkedin || '',
+          github: parsed.github || '',
+          portfolio: parsed.portfolio || '',
+          summary: parsed.summary || '',
+          skills: Array.isArray(parsed.skills) ? parsed.skills : [],
+          experience: Array.isArray(parsed.experience) ? parsed.experience : [],
+          education: Array.isArray(parsed.education) ? parsed.education : [],
           resumeFileName: file.name,
-          resumeFileSize: `${fileSizeFormatted} (Tersinkronisasi Otomatis)`,
-        }));
+          resumeFileSize: `${fileSizeFormatted} (Tersinkronisasi dari CV)`,
+        };
+
+        setCandidate(updatedCandidate);
+
+        try {
+          localStorage.setItem(`autolamar_candidate_${candidate.id}`, JSON.stringify(updatedCandidate));
+        } catch {}
+
         setExtractSuccess(true);
         onSaveNotification();
       } else {
-        throw new Error(resData.error || 'Gagal mengekstrak data dari berkas');
+        throw new Error(resData.error || resData.warning || 'Gagal mengekstrak data dari berkas');
       }
     } catch (err: any) {
       console.error('Error parsing resume:', err);
@@ -295,12 +295,78 @@ export const ProfileVault: React.FC<ProfileVaultProps> = ({
     try {
       localStorage.removeItem(`autolamar_manual_cv_${candidate.id}`);
     } catch {}
-    setCandidate((prev) => ({
-      ...prev,
+    lastAttachedFileRef.current = null;
+    const emptyProfile: CandidateProfile = {
+      id: candidate.id,
+      fullName: '',
+      email: '',
+      phone: '',
+      location: '',
+      primaryRole: '',
+      experienceYears: 0,
+      expectedSalary: '',
+      availability: '',
+      linkedin: '',
+      github: '',
+      portfolio: '',
+      summary: '',
+      skills: [],
+      experience: [],
+      education: [],
       resumeFileName: undefined,
       resumeFileSize: undefined,
-    }));
+    };
+    setCandidate(emptyProfile);
+    try {
+      localStorage.setItem(`autolamar_candidate_${candidate.id}`, JSON.stringify(emptyProfile));
+    } catch {}
     setExtractSuccess(false);
+  };
+
+  // Re-sync attached CV if available or open file dialog
+  const handleResyncAttachedCV = () => {
+    if (lastAttachedFileRef.current) {
+      processFile(lastAttachedFileRef.current);
+    } else {
+      fileInputRef.current?.click();
+    }
+  };
+
+  // Load realistic sample CV to test automatic extraction with empty-while-processing flow
+  const handleLoadSampleCV = () => {
+    const sampleCVContent = `CURRICULUM VITAE ATS COMPLIANT
+
+Nama Lengkap: Budi Santoso
+Email: budi.santoso.dev@gmail.com
+No. HP / WhatsApp: +62 812-9876-5432
+Domisili: Jakarta Selatan, DKI Jakarta
+Ekspektasi Gaji: Rp 22.000.000 - Rp 28.000.000 / bulan
+Ketersediaan: Immediately (Siap bergabung segera)
+LinkedIn: linkedin.com/in/budisantoso-dev
+GitHub: github.com/budisantoso-tech
+Portofolio: budisantoso.dev
+
+RINGKASAN PROFESIONAL
+Senior Fullstack Software Engineer dengan 4+ tahun pengalaman dalam membangun aplikasi berskala besar, sistem microservices ber-traffic tinggi, dan antarmuka web performa tinggi. Mahir dalam ekosistem React, TypeScript, Next.js, Node.js, Express, dan PostgreSQL.
+
+KEAHLIAN
+React, TypeScript, Node.js, Next.js, Express, PostgreSQL, Redis, Docker, Tailwind CSS, REST API, GraphQL, Git, CI/CD, Agile / Scrum, Unit Testing, Microservices
+
+PENGALAMAN KERJA
+1. Senior Software Engineer - PT Solusi Digital Nusantara (2022 - Sekarang)
+Memimpin arsitektur antarmuka dan API payment gateway dengan volume transaksi harian >120.000. Memangkas page latency 40% dan mengorkestrasi deployment dengan Docker.
+
+2. Fullstack Web Developer - PT Inovasi Media Kreatif (2020 - 2022)
+Membangun web dashboard analytics responsif dengan React dan backend REST API berbasis Node.js dan PostgreSQL.
+
+RIWAYAT PENDIDIKAN
+S1 Teknik Informatika - Institut Teknologi Bandung (ITB) (Lulus 2020)
+`;
+
+    const sampleFile = new File([sampleCVContent], 'CV_Budi_Santoso_ATS.txt', {
+      type: 'text/plain',
+    });
+    processFile(sampleFile);
   };
 
   // Switch preset profile for instant testing
@@ -679,20 +745,30 @@ export const ProfileVault: React.FC<ProfileVaultProps> = ({
 
         {/* Current Attached CV Summary Strip */}
         {candidate.resumeFileName ? (
-          <div className="bg-black border border-zinc-800/80 rounded-lg p-3 flex items-center justify-between gap-3 text-xs">
+          <div className="bg-black border border-zinc-800/80 rounded-lg p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
             <div className="flex items-center gap-2.5 min-w-0">
               <FileText className="w-4 h-4 text-white shrink-0" />
               <div className="min-w-0 truncate">
                 <span className="font-medium text-white truncate block">
                   {candidate.resumeFileName}
                 </span>
-                <span className="text-[11px] text-zinc-500 font-mono">
+                <span className="text-[11px] text-zinc-400 font-mono">
                   {candidate.resumeFileSize || 'Terlampir'}
                 </span>
               </div>
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={handleResyncAttachedCV}
+                disabled={isExtracting}
+                className="px-2.5 py-1 rounded bg-white hover:bg-zinc-200 text-black text-[11px] font-semibold transition-colors flex items-center gap-1.5 active:scale-95 disabled:opacity-50"
+                title="Ekstrak dan sinkronkan ulang seluruh data profil dari berkas CV ini"
+              >
+                <RefreshCw className={`w-3 h-3 ${isExtracting ? 'animate-spin' : ''}`} />
+                <span>Sinkronkan Ulang dari CV</span>
+              </button>
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
@@ -704,6 +780,7 @@ export const ProfileVault: React.FC<ProfileVaultProps> = ({
               <button
                 type="button"
                 onClick={handleRemoveAttachedCV}
+                disabled={isExtracting}
                 className="p-1 rounded text-zinc-500 hover:text-red-400 transition-colors"
                 title="Hapus lampiran CV"
               >
@@ -712,7 +789,7 @@ export const ProfileVault: React.FC<ProfileVaultProps> = ({
             </div>
           </div>
         ) : (
-          <div className="bg-black border border-dashed border-zinc-800 rounded-lg p-3 flex items-center justify-between gap-3 text-xs">
+          <div className="bg-black border border-dashed border-zinc-800 rounded-lg p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
             <div className="flex items-center gap-2.5 min-w-0">
               <FileText className="w-4 h-4 text-zinc-500 shrink-0" />
               <div className="min-w-0">
@@ -720,9 +797,31 @@ export const ProfileVault: React.FC<ProfileVaultProps> = ({
                   Belum Ada Berkas CV Terlampir
                 </span>
                 <span className="text-[11px] text-zinc-500">
-                  Data profil tidak dibuat otomatis. Unggah berkas CV Anda untuk ekstraksi data profil & riwayat karir otomatis via AI.
+                  Data profil tidak dibuat otomatis. Unggah berkas CV Anda untuk ekstraksi Identitas & Kontak Utama, Keahlian, dan Riwayat Karir langsung dari CV.
                 </span>
               </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={handleLoadSampleCV}
+                disabled={isExtracting}
+                className="px-3 py-1.5 rounded bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-zinc-200 text-[11px] font-medium transition-colors flex items-center gap-1.5"
+                title="Gunakan contoh berkas CV terformat ATS untuk pengujian ekstraksi"
+              >
+                <FileText className="w-3.5 h-3.5 text-zinc-400" />
+                <span>Uji Contoh CV ATS</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isExtracting}
+                className="px-3 py-1.5 rounded bg-white hover:bg-zinc-200 text-black text-[11px] font-semibold transition-colors flex items-center gap-1.5"
+              >
+                <FileUp className="w-3.5 h-3.5" />
+                <span>Unggah CV</span>
+              </button>
             </div>
           </div>
         )}
@@ -733,10 +832,26 @@ export const ProfileVault: React.FC<ProfileVaultProps> = ({
         {/* Left Column: Personal info & file badge */}
         <div className="space-y-6">
           <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-5 space-y-4">
-            <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-              <User className="w-4 h-4 text-zinc-400" />
-              <span>Identitas & Kontak Utama</span>
-            </h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                <User className="w-4 h-4 text-zinc-400" />
+                <span>Identitas & Kontak Utama</span>
+              </h3>
+              {isExtracting ? (
+                <span className="text-[10px] text-zinc-400 font-mono bg-zinc-900 px-2 py-0.5 rounded border border-zinc-800 animate-pulse">
+                  Sedang Memproses CV...
+                </span>
+              ) : candidate.resumeFileName ? (
+                <span className="text-[10px] text-zinc-300 font-mono bg-zinc-900 px-2 py-0.5 rounded border border-zinc-800 flex items-center gap-1">
+                  <FileCheck className="w-3 h-3 text-white" />
+                  <span>Diambil dari CV</span>
+                </span>
+              ) : (
+                <span className="text-[10px] text-zinc-500 font-mono bg-zinc-900 px-2 py-0.5 rounded border border-zinc-800">
+                  Menunggu Lampiran CV
+                </span>
+              )}
+            </div>
 
             <div className="space-y-3 text-xs">
               <div>
@@ -745,7 +860,9 @@ export const ProfileVault: React.FC<ProfileVaultProps> = ({
                   type="text"
                   value={candidate.fullName}
                   onChange={(e) => setCandidate({ ...candidate, fullName: e.target.value })}
-                  className="w-full bg-black border border-zinc-800 rounded-lg p-2.5 text-zinc-200 focus:outline-none focus:border-zinc-500"
+                  disabled={isExtracting}
+                  placeholder={isExtracting ? 'Sedang mengekstrak dari CV...' : 'Nama lengkap sesuai CV'}
+                  className="w-full bg-black border border-zinc-800 rounded-lg p-2.5 text-zinc-200 focus:outline-none focus:border-zinc-500 disabled:opacity-50 disabled:bg-zinc-950"
                 />
               </div>
 
@@ -755,7 +872,9 @@ export const ProfileVault: React.FC<ProfileVaultProps> = ({
                   type="email"
                   value={candidate.email}
                   onChange={(e) => setCandidate({ ...candidate, email: e.target.value })}
-                  className="w-full bg-black border border-zinc-800 rounded-lg p-2.5 text-zinc-200 focus:outline-none focus:border-zinc-500 font-mono"
+                  disabled={isExtracting}
+                  placeholder={isExtracting ? 'Sedang mengekstrak dari CV...' : 'email@domain.com'}
+                  className="w-full bg-black border border-zinc-800 rounded-lg p-2.5 text-zinc-200 focus:outline-none focus:border-zinc-500 font-mono disabled:opacity-50 disabled:bg-zinc-950"
                 />
               </div>
 
@@ -765,7 +884,9 @@ export const ProfileVault: React.FC<ProfileVaultProps> = ({
                   type="text"
                   value={candidate.phone}
                   onChange={(e) => setCandidate({ ...candidate, phone: e.target.value })}
-                  className="w-full bg-black border border-zinc-800 rounded-lg p-2.5 text-zinc-200 focus:outline-none focus:border-zinc-500"
+                  disabled={isExtracting}
+                  placeholder={isExtracting ? 'Sedang mengekstrak dari CV...' : '+62 812...'}
+                  className="w-full bg-black border border-zinc-800 rounded-lg p-2.5 text-zinc-200 focus:outline-none focus:border-zinc-500 disabled:opacity-50 disabled:bg-zinc-950"
                 />
               </div>
 
@@ -775,7 +896,9 @@ export const ProfileVault: React.FC<ProfileVaultProps> = ({
                   type="text"
                   value={candidate.location}
                   onChange={(e) => setCandidate({ ...candidate, location: e.target.value })}
-                  className="w-full bg-black border border-zinc-800 rounded-lg p-2.5 text-zinc-200 focus:outline-none focus:border-zinc-500"
+                  disabled={isExtracting}
+                  placeholder={isExtracting ? 'Sedang mengekstrak dari CV...' : 'Kota / Domisili'}
+                  className="w-full bg-black border border-zinc-800 rounded-lg p-2.5 text-zinc-200 focus:outline-none focus:border-zinc-500 disabled:opacity-50 disabled:bg-zinc-950"
                 />
               </div>
 
@@ -785,7 +908,9 @@ export const ProfileVault: React.FC<ProfileVaultProps> = ({
                   type="text"
                   value={candidate.expectedSalary}
                   onChange={(e) => setCandidate({ ...candidate, expectedSalary: e.target.value })}
-                  className="w-full bg-black border border-zinc-800 rounded-lg p-2.5 text-zinc-200 focus:outline-none focus:border-zinc-500"
+                  disabled={isExtracting}
+                  placeholder={isExtracting ? 'Sedang mengekstrak dari CV...' : 'Rp xx.xxx.xxx'}
+                  className="w-full bg-black border border-zinc-800 rounded-lg p-2.5 text-zinc-200 focus:outline-none focus:border-zinc-500 disabled:opacity-50 disabled:bg-zinc-950"
                 />
               </div>
             </div>
@@ -793,10 +918,17 @@ export const ProfileVault: React.FC<ProfileVaultProps> = ({
 
           {/* Social Links */}
           <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-5 space-y-3.5">
-            <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-              <Link className="w-4 h-4 text-zinc-400" />
-              <span>Tautan Portofolio & Jejaring</span>
-            </h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                <Link className="w-4 h-4 text-zinc-400" />
+                <span>Tautan Portofolio & Jejaring</span>
+              </h3>
+              {candidate.resumeFileName && !isExtracting && (
+                <span className="text-[10px] text-zinc-400 font-mono bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800">
+                  Dari CV
+                </span>
+              )}
+            </div>
 
             <div className="space-y-3 text-xs">
               <div>
@@ -805,8 +937,9 @@ export const ProfileVault: React.FC<ProfileVaultProps> = ({
                   type="text"
                   value={candidate.linkedin}
                   onChange={(e) => setCandidate({ ...candidate, linkedin: e.target.value })}
-                  placeholder="linkedin.com/in/username"
-                  className="w-full bg-black border border-zinc-800 rounded-lg p-2.5 text-zinc-200 focus:outline-none focus:border-zinc-500 font-mono text-[11px]"
+                  disabled={isExtracting}
+                  placeholder={isExtracting ? 'Sedang mengekstrak dari CV...' : 'linkedin.com/in/username'}
+                  className="w-full bg-black border border-zinc-800 rounded-lg p-2.5 text-zinc-200 focus:outline-none focus:border-zinc-500 font-mono text-[11px] disabled:opacity-50 disabled:bg-zinc-950"
                 />
               </div>
 
@@ -816,8 +949,9 @@ export const ProfileVault: React.FC<ProfileVaultProps> = ({
                   type="text"
                   value={candidate.github || ''}
                   onChange={(e) => setCandidate({ ...candidate, github: e.target.value })}
-                  placeholder="github.com/username"
-                  className="w-full bg-black border border-zinc-800 rounded-lg p-2.5 text-zinc-200 focus:outline-none focus:border-zinc-500 font-mono text-[11px]"
+                  disabled={isExtracting}
+                  placeholder={isExtracting ? 'Sedang mengekstrak dari CV...' : 'github.com/username'}
+                  className="w-full bg-black border border-zinc-800 rounded-lg p-2.5 text-zinc-200 focus:outline-none focus:border-zinc-500 font-mono text-[11px] disabled:opacity-50 disabled:bg-zinc-950"
                 />
               </div>
 
@@ -827,8 +961,9 @@ export const ProfileVault: React.FC<ProfileVaultProps> = ({
                   type="text"
                   value={candidate.portfolio || ''}
                   onChange={(e) => setCandidate({ ...candidate, portfolio: e.target.value })}
-                  placeholder="portofolio-anda.com"
-                  className="w-full bg-black border border-zinc-800 rounded-lg p-2.5 text-zinc-200 focus:outline-none focus:border-zinc-500 font-mono text-[11px]"
+                  disabled={isExtracting}
+                  placeholder={isExtracting ? 'Sedang mengekstrak dari CV...' : 'portofolio-anda.com'}
+                  className="w-full bg-black border border-zinc-800 rounded-lg p-2.5 text-zinc-200 focus:outline-none focus:border-zinc-500 font-mono text-[11px] disabled:opacity-50 disabled:bg-zinc-950"
                 />
               </div>
             </div>
@@ -878,6 +1013,17 @@ export const ProfileVault: React.FC<ProfileVaultProps> = ({
         <div className="lg:col-span-2 space-y-6">
           {/* Role & Summary */}
           <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-5 space-y-4">
+            <div className="flex items-center justify-between pb-1 border-b border-zinc-800/60">
+              <span className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">
+                Target Peran & Ringkasan
+              </span>
+              {candidate.resumeFileName && !isExtracting && (
+                <span className="text-[10px] text-zinc-400 font-mono bg-zinc-900 px-2 py-0.5 rounded border border-zinc-800">
+                  Diambil dari CV
+                </span>
+              )}
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
               <div>
                 <label className="block text-zinc-400 mb-1">Profesi Utama / Target Posisi</label>
@@ -885,7 +1031,9 @@ export const ProfileVault: React.FC<ProfileVaultProps> = ({
                   type="text"
                   value={candidate.primaryRole}
                   onChange={(e) => setCandidate({ ...candidate, primaryRole: e.target.value })}
-                  className="w-full bg-black border border-zinc-800 rounded-lg p-2.5 text-zinc-200 focus:outline-none focus:border-zinc-500 font-medium"
+                  disabled={isExtracting}
+                  placeholder={isExtracting ? 'Sedang mengekstrak dari CV...' : 'Profesi utama sesuai CV'}
+                  className="w-full bg-black border border-zinc-800 rounded-lg p-2.5 text-zinc-200 focus:outline-none focus:border-zinc-500 font-medium disabled:opacity-50 disabled:bg-zinc-950"
                 />
               </div>
 
@@ -893,11 +1041,13 @@ export const ProfileVault: React.FC<ProfileVaultProps> = ({
                 <label className="block text-zinc-400 mb-1">Total Pengalaman (Tahun)</label>
                 <input
                   type="number"
-                  value={candidate.experienceYears}
+                  value={isExtracting ? '' : candidate.experienceYears}
                   onChange={(e) =>
                     setCandidate({ ...candidate, experienceYears: Number(e.target.value) })
                   }
-                  className="w-full bg-black border border-zinc-800 rounded-lg p-2.5 text-zinc-200 focus:outline-none focus:border-zinc-500 font-mono"
+                  disabled={isExtracting}
+                  placeholder={isExtracting ? '...' : '0'}
+                  className="w-full bg-black border border-zinc-800 rounded-lg p-2.5 text-zinc-200 focus:outline-none focus:border-zinc-500 font-mono disabled:opacity-50 disabled:bg-zinc-950"
                 />
               </div>
             </div>
@@ -911,8 +1061,8 @@ export const ProfileVault: React.FC<ProfileVaultProps> = ({
                 <button
                   type="button"
                   onClick={handleOptimizeSummary}
-                  disabled={isOptimizingSummary}
-                  className="text-xs text-white hover:text-zinc-300 flex items-center gap-1 font-medium transition-colors"
+                  disabled={isOptimizingSummary || isExtracting || !candidate.summary}
+                  className="text-xs text-white hover:text-zinc-300 flex items-center gap-1 font-medium transition-colors disabled:opacity-40"
                 >
                   <Sparkles className="w-3.5 h-3.5 text-zinc-400" />
                   <span>{isOptimizingSummary ? 'Mengoptimalkan...' : 'Poles Ringkasan AI'}</span>
@@ -923,8 +1073,13 @@ export const ProfileVault: React.FC<ProfileVaultProps> = ({
                 rows={4}
                 value={candidate.summary}
                 onChange={(e) => setCandidate({ ...candidate, summary: e.target.value })}
-                placeholder="Tuliskan ringkasan karir Anda..."
-                className="w-full bg-black border border-zinc-800 rounded-lg p-3 text-xs text-zinc-200 focus:outline-none focus:border-zinc-500 leading-relaxed font-normal"
+                disabled={isExtracting}
+                placeholder={
+                  isExtracting
+                    ? 'Sedang mengekstrak ringkasan profil dari berkas CV... Kolom sementara dikosongkan.'
+                    : 'Tuliskan ringkasan karir Anda atau lampirkan CV untuk auto-generate...'
+                }
+                className="w-full bg-black border border-zinc-800 rounded-lg p-3 text-xs text-zinc-200 focus:outline-none focus:border-zinc-500 leading-relaxed font-normal disabled:opacity-50 disabled:bg-zinc-950"
               />
             </div>
           </div>
@@ -932,159 +1087,181 @@ export const ProfileVault: React.FC<ProfileVaultProps> = ({
           {/* Skills Management */}
           <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-5 space-y-4">
             <h3 className="text-sm font-semibold text-white flex items-center justify-between">
-              <span>Keahlian</span>
+              <div className="flex items-center gap-2">
+                <span>Keahlian</span>
+                {candidate.resumeFileName && !isExtracting && (
+                  <span className="text-[10px] text-zinc-400 font-mono bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800">
+                    Dari CV
+                  </span>
+                )}
+              </div>
               <span className="text-xs text-zinc-400 font-mono">
-                {candidate.skills.length} Keahlian Terdaftar
+                {isExtracting ? 'Memproses...' : `${candidate.skills.length} Keahlian Terdaftar`}
               </span>
             </h3>
 
-            {/* Add skill input with autocomplete recommendation */}
-            <div className="relative">
-              <div className="flex items-center gap-2">
-                <div className="relative flex-1">
-                  <input
-                    ref={skillInputRef}
-                    type="text"
-                    value={skillInput}
-                    onChange={(e) => {
-                      setSkillInput(e.target.value);
-                      setSelectedSuggestionIndex(-1);
-                      if (!isSkillFocused) setIsSkillFocused(true);
-                    }}
-                    onFocus={() => setIsSkillFocused(true)}
-                    onBlur={() => {
-                      setTimeout(() => setIsSkillFocused(false), 200);
-                    }}
-                    onKeyDown={handleSkillKeyDown}
-                    placeholder="Ketik keahlian (misal: Docker, Kubernetes, SEO, Figma) lalu tekan Enter..."
-                    className="w-full bg-black border border-zinc-800 rounded-lg px-3 py-2 pr-8 text-xs text-zinc-200 focus:outline-none focus:border-zinc-500 font-mono"
-                  />
-                  {skillInput && (
-                    <button
-                      type="button"
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        setSkillInput('');
-                        setSelectedSuggestionIndex(-1);
-                      }}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-200 p-0.5"
-                      title="Hapus ketikan"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  onClick={handleAddSkill}
-                  className="px-3.5 py-2 text-xs font-semibold bg-white hover:bg-zinc-200 text-black rounded-lg transition-colors flex items-center gap-1 shrink-0"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Tambah</span>
-                </button>
+            {isExtracting ? (
+              <div className="p-4 bg-black rounded-lg border border-zinc-800/80 text-xs text-zinc-400 flex items-center gap-3">
+                <div className="w-4 h-4 border-2 border-zinc-500 border-t-white rounded-full animate-spin shrink-0" />
+                <span>Sedang mengekstrak daftar keahlian dari isi CV... Data dikosongkan sementara.</span>
               </div>
-
-              {/* Autocomplete Recommendation Popover */}
-              {isSkillFocused && (skillRecommendations.length > 0 || skillInput.trim()) && (
-                <div className="absolute left-0 right-0 top-full mt-1.5 z-40 bg-zinc-950 border border-zinc-800 rounded-xl shadow-2xl overflow-hidden divide-y divide-zinc-900">
-                  <div className="px-3 py-1.5 bg-zinc-900/90 flex items-center justify-between text-[11px] text-zinc-400 font-mono">
-                    <span className="flex items-center gap-1.5">
-                      <Sparkles className="w-3 h-3 text-white" />
-                      <span>
-                        {skillInput.trim()
-                          ? `Rekomendasi Keahlian Terkait "${skillInput.trim()}" (${skillRecommendations.length})`
-                          : 'Rekomendasi Keahlian Populer'}
-                      </span>
-                    </span>
-                    <span className="text-[10px] text-zinc-500">Gunakan ↑↓ navigasi & Enter</span>
-                  </div>
-
-                  <div className="max-h-56 overflow-y-auto">
-                    {skillRecommendations.map((item, idx) => {
-                      const isSelected = idx === selectedSuggestionIndex;
-                      return (
-                        <button
-                          key={item.name}
-                          type="button"
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            addSkill(item.name);
-                          }}
-                          onMouseEnter={() => setSelectedSuggestionIndex(idx)}
-                          className={`w-full px-3 py-2 text-left flex items-center justify-between transition-colors text-xs font-mono ${
-                            isSelected ? 'bg-zinc-800 text-white' : 'hover:bg-zinc-900 text-zinc-300'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <span
-                              className={`w-1.5 h-1.5 rounded-full ${
-                                isSelected ? 'bg-white' : 'bg-zinc-600'
-                              }`}
-                            />
-                            <span className="font-medium text-zinc-100">{item.name}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] text-zinc-400 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800">
-                              {item.category}
-                            </span>
-                            <span className="text-[11px] text-zinc-400 group-hover:text-white font-medium">
-                              + Tambah
-                            </span>
-                          </div>
-                        </button>
-                      );
-                    })}
-
-                    {/* Custom skill option if input doesn't exactly match any recommendation */}
-                    {skillInput.trim() &&
-                      !skillRecommendations.some(
-                        (r) => r.name.toLowerCase() === skillInput.trim().toLowerCase()
-                      ) &&
-                      !candidate.skills.some(
-                        (s) => s.toLowerCase() === skillInput.trim().toLowerCase()
-                      ) && (
+            ) : (
+              <>
+                {/* Add skill input with autocomplete recommendation */}
+                <div className="relative">
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                      <input
+                        ref={skillInputRef}
+                        type="text"
+                        value={skillInput}
+                        onChange={(e) => {
+                          setSkillInput(e.target.value);
+                          setSelectedSuggestionIndex(-1);
+                          if (!isSkillFocused) setIsSkillFocused(true);
+                        }}
+                        onFocus={() => setIsSkillFocused(true)}
+                        onBlur={() => {
+                          setTimeout(() => setIsSkillFocused(false), 200);
+                        }}
+                        onKeyDown={handleSkillKeyDown}
+                        placeholder="Ketik keahlian (misal: Docker, Kubernetes, SEO, Figma) lalu tekan Enter..."
+                        className="w-full bg-black border border-zinc-800 rounded-lg px-3 py-2 pr-8 text-xs text-zinc-200 focus:outline-none focus:border-zinc-500 font-mono"
+                      />
+                      {skillInput && (
                         <button
                           type="button"
                           onMouseDown={(e) => {
                             e.preventDefault();
-                            addSkill(skillInput.trim());
+                            setSkillInput('');
+                            setSelectedSuggestionIndex(-1);
                           }}
-                          className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-zinc-900 text-xs font-mono text-zinc-400 border-t border-zinc-900"
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-200 p-0.5"
+                          title="Hapus ketikan"
                         >
-                          <div className="flex items-center gap-2">
-                            <Plus className="w-3.5 h-3.5 text-zinc-300" />
-                            <span>
-                              Tambahkan <span className="text-white font-semibold">"{skillInput.trim()}"</span> sebagai keahlian kustom
-                            </span>
-                          </div>
-                          <span className="text-[10px] text-zinc-500 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800">
-                            Enter
-                          </span>
+                          <X className="w-3.5 h-3.5" />
                         </button>
                       )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleAddSkill}
+                      className="px-3.5 py-2 text-xs font-semibold bg-white hover:bg-zinc-200 text-black rounded-lg transition-colors flex items-center gap-1 shrink-0"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Tambah</span>
+                    </button>
                   </div>
-                </div>
-              )}
-            </div>
 
-            {/* Skill tags */}
-            <div className="flex flex-wrap gap-1.5 pt-1">
-              {candidate.skills.map((skill, idx) => (
-                <span
-                  key={idx}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-zinc-900 text-zinc-200 border border-zinc-700 text-xs font-mono"
-                >
-                  <span>{skill}</span>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveSkill(skill)}
-                    className="text-zinc-500 hover:text-white"
-                  >
-                    &times;
-                  </button>
-                </span>
-              ))}
-            </div>
+                  {/* Autocomplete Recommendation Popover */}
+                  {isSkillFocused && (skillRecommendations.length > 0 || skillInput.trim()) && (
+                    <div className="absolute left-0 right-0 top-full mt-1.5 z-40 bg-zinc-950 border border-zinc-800 rounded-xl shadow-2xl overflow-hidden divide-y divide-zinc-900">
+                      <div className="px-3 py-1.5 bg-zinc-900/90 flex items-center justify-between text-[11px] text-zinc-400 font-mono">
+                        <span className="flex items-center gap-1.5">
+                          <Sparkles className="w-3 h-3 text-white" />
+                          <span>
+                            {skillInput.trim()
+                              ? `Rekomendasi Keahlian Terkait "${skillInput.trim()}" (${skillRecommendations.length})`
+                              : 'Rekomendasi Keahlian Populer'}
+                          </span>
+                        </span>
+                        <span className="text-[10px] text-zinc-500">Gunakan ↑↓ navigasi & Enter</span>
+                      </div>
+
+                      <div className="max-h-56 overflow-y-auto">
+                        {skillRecommendations.map((item, idx) => {
+                          const isSelected = idx === selectedSuggestionIndex;
+                          return (
+                            <button
+                              key={item.name}
+                              type="button"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                addSkill(item.name);
+                              }}
+                              onMouseEnter={() => setSelectedSuggestionIndex(idx)}
+                              className={`w-full px-3 py-2 text-left flex items-center justify-between transition-colors text-xs font-mono ${
+                                isSelected ? 'bg-zinc-800 text-white' : 'hover:bg-zinc-900 text-zinc-300'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className={`w-1.5 h-1.5 rounded-full ${
+                                    isSelected ? 'bg-white' : 'bg-zinc-600'
+                                  }`}
+                                />
+                                <span className="font-medium text-zinc-100">{item.name}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] text-zinc-400 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800">
+                                  {item.category}
+                                </span>
+                                <span className="text-[11px] text-zinc-400 group-hover:text-white font-medium">
+                                  + Tambah
+                                </span>
+                              </div>
+                            </button>
+                          );
+                        })}
+
+                        {/* Custom skill option if input doesn't exactly match any recommendation */}
+                        {skillInput.trim() &&
+                          !skillRecommendations.some(
+                            (r) => r.name.toLowerCase() === skillInput.trim().toLowerCase()
+                          ) &&
+                          !candidate.skills.some(
+                            (s) => s.toLowerCase() === skillInput.trim().toLowerCase()
+                          ) && (
+                            <button
+                              type="button"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                addSkill(skillInput.trim());
+                              }}
+                              className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-zinc-900 text-xs font-mono text-zinc-400 border-t border-zinc-900"
+                            >
+                              <div className="flex items-center gap-2">
+                                <Plus className="w-3.5 h-3.5 text-zinc-300" />
+                                <span>
+                                  Tambahkan <span className="text-white font-semibold">"{skillInput.trim()}"</span> sebagai keahlian kustom
+                                </span>
+                              </div>
+                              <span className="text-[10px] text-zinc-500 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800">
+                                Enter
+                              </span>
+                            </button>
+                          )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Skill tags */}
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {candidate.skills.length === 0 ? (
+                    <span className="text-zinc-500 text-xs">
+                      Belum ada keahlian terdaftar. Lampirkan CV atau gunakan form di atas.
+                    </span>
+                  ) : (
+                    candidate.skills.map((skill, idx) => (
+                      <span
+                        key={idx}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-zinc-900 text-zinc-200 border border-zinc-700 text-xs font-mono"
+                      >
+                        <span>{skill}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveSkill(skill)}
+                          className="text-zinc-500 hover:text-white"
+                        >
+                          &times;
+                        </button>
+                      </span>
+                    ))
+                  )}
+                </div>
+              </>
+            )}
           </div>
 
           {/* Experience list with interactive CRUD */}
@@ -1093,10 +1270,17 @@ export const ProfileVault: React.FC<ProfileVaultProps> = ({
               <h3 className="text-sm font-semibold text-white flex items-center gap-2">
                 <Briefcase className="w-4 h-4 text-zinc-400" />
                 <span>Riwayat Pengalaman Kerja</span>
-                <span className="text-xs text-zinc-400 font-mono">({candidate.experience.length})</span>
+                {candidate.resumeFileName && !isExtracting && (
+                  <span className="text-[10px] text-zinc-400 font-mono bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800">
+                    Dari CV
+                  </span>
+                )}
+                <span className="text-xs text-zinc-400 font-mono">
+                  {isExtracting ? '(Memproses...)' : `(${candidate.experience.length})`}
+                </span>
               </h3>
 
-              {!isAddingExp && editingExpIndex === null && (
+              {!isExtracting && !isAddingExp && editingExpIndex === null && (
                 <button
                   type="button"
                   onClick={handleStartAddExp}
@@ -1108,156 +1292,165 @@ export const ProfileVault: React.FC<ProfileVaultProps> = ({
               )}
             </div>
 
-            {/* Experience Add/Edit Form */}
-            {(isAddingExp || editingExpIndex !== null) && (
-              <div className="bg-black border border-zinc-700 rounded-xl p-4 sm:p-5 space-y-3.5 animate-in fade-in duration-150">
-                <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
-                  <h4 className="text-xs font-semibold text-white uppercase tracking-wider">
-                    {isAddingExp ? 'Tambah Pengalaman Kerja Baru' : 'Edit Pengalaman Kerja'}
-                  </h4>
-                  <button
-                    type="button"
-                    onClick={handleCancelExp}
-                    className="text-zinc-400 hover:text-white p-1 rounded hover:bg-zinc-900"
-                    title="Batal"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-zinc-400 mb-1">
-                      Posisi / Jabatan <span className="text-white">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={expForm.role}
-                      onChange={(e) => setExpForm({ ...expForm, role: e.target.value })}
-                      placeholder="Contoh: Senior Frontend Engineer"
-                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-200 focus:outline-none focus:border-zinc-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-zinc-400 mb-1">
-                      Nama Perusahaan <span className="text-white">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={expForm.company}
-                      onChange={(e) => setExpForm({ ...expForm, company: e.target.value })}
-                      placeholder="Contoh: PT Gojek Indonesia"
-                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-200 focus:outline-none focus:border-zinc-500"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-zinc-400 mb-1">
-                    Periode Kerja
-                  </label>
-                  <input
-                    type="text"
-                    value={expForm.period}
-                    onChange={(e) => setExpForm({ ...expForm, period: e.target.value })}
-                    placeholder="Contoh: 2022 - Sekarang (2 Tahun) atau Jan 2021 - Des 2023"
-                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-200 focus:outline-none focus:border-zinc-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-zinc-400 mb-1">
-                    Deskripsi Tanggung Jawab & Pencapaian
-                  </label>
-                  <textarea
-                    rows={3}
-                    value={expForm.description}
-                    onChange={(e) => setExpForm({ ...expForm, description: e.target.value })}
-                    placeholder="Jelaskan peran utama, teknologi yang digunakan, serta pencapaian terukur yang relevan untuk ATS..."
-                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-200 focus:outline-none focus:border-zinc-500 leading-relaxed resize-none"
-                  />
-                </div>
-
-                <div className="flex items-center justify-end gap-2 pt-1 border-t border-zinc-800">
-                  <button
-                    type="button"
-                    onClick={handleCancelExp}
-                    className="px-3 py-1.5 text-xs font-medium text-zinc-400 hover:text-white bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-lg transition-colors"
-                  >
-                    Batal
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleSaveExp}
-                    disabled={!expForm.role.trim() || !expForm.company.trim()}
-                    className="px-4 py-1.5 text-xs font-semibold bg-white hover:bg-zinc-200 text-black rounded-lg transition-colors flex items-center gap-1.5 disabled:opacity-50 shadow-xs"
-                  >
-                    <Check className="w-3.5 h-3.5" />
-                    <span>{isAddingExp ? 'Tambahkan ke Profil' : 'Simpan Perubahan'}</span>
-                  </button>
-                </div>
+            {isExtracting ? (
+              <div className="p-4 bg-black rounded-lg border border-zinc-800/80 text-xs text-zinc-400 flex items-center gap-3">
+                <div className="w-4 h-4 border-2 border-zinc-500 border-t-white rounded-full animate-spin shrink-0" />
+                <span>Sedang mengekstrak riwayat pengalaman kerja dari isi CV... Data dikosongkan sementara.</span>
               </div>
-            )}
+            ) : (
+              <>
+                {/* Experience Add/Edit Form */}
+                {(isAddingExp || editingExpIndex !== null) && (
+                  <div className="bg-black border border-zinc-700 rounded-xl p-4 sm:p-5 space-y-3.5 animate-in fade-in duration-150">
+                    <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
+                      <h4 className="text-xs font-semibold text-white uppercase tracking-wider">
+                        {isAddingExp ? 'Tambah Pengalaman Kerja Baru' : 'Edit Pengalaman Kerja'}
+                      </h4>
+                      <button
+                        type="button"
+                        onClick={handleCancelExp}
+                        className="text-zinc-400 hover:text-white p-1 rounded hover:bg-zinc-900"
+                        title="Batal"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
 
-            {/* Experience Cards Listing */}
-            <div className="space-y-3">
-              {candidate.experience.length === 0 ? (
-                <div className="text-center py-6 bg-black rounded-lg border border-zinc-900 text-xs text-zinc-500">
-                  Belum ada riwayat pengalaman kerja. Klik Tambah Pengalaman di atas untuk melengkapi.
-                </div>
-              ) : (
-                candidate.experience.map((exp, idx) => (
-                  <div
-                    key={idx}
-                    className="bg-black p-3.5 sm:p-4 rounded-lg border border-zinc-800 hover:border-zinc-700 transition-colors space-y-2 group"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="space-y-0.5 flex-1 min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h4 className="font-semibold text-white text-xs sm:text-sm truncate">
-                            {exp.role}
-                          </h4>
-                          <span className="text-zinc-500 text-xs">di</span>
-                          <span className="text-zinc-300 font-medium text-xs">
-                            {exp.company}
-                          </span>
-                        </div>
-                        <span className="text-zinc-500 font-mono text-[11px] block">
-                          {exp.period}
-                        </span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-zinc-400 mb-1">
+                          Posisi / Jabatan <span className="text-white">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={expForm.role}
+                          onChange={(e) => setExpForm({ ...expForm, role: e.target.value })}
+                          placeholder="Contoh: Senior Frontend Engineer"
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-200 focus:outline-none focus:border-zinc-500"
+                        />
                       </div>
 
-                      {/* Action buttons (Edit & Delete) */}
-                      <div className="flex items-center gap-1 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => handleStartEditExp(idx)}
-                          className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-900 rounded transition-colors"
-                          title="Edit pengalaman ini"
-                        >
-                          <Pencil className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteExp(idx)}
-                          className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-900 rounded transition-colors"
-                          title="Hapus pengalaman ini"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                      <div>
+                        <label className="block text-xs font-medium text-zinc-400 mb-1">
+                          Nama Perusahaan <span className="text-white">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={expForm.company}
+                          onChange={(e) => setExpForm({ ...expForm, company: e.target.value })}
+                          placeholder="Contoh: PT Gojek Indonesia"
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-200 focus:outline-none focus:border-zinc-500"
+                        />
                       </div>
                     </div>
 
-                    {exp.description && (
-                      <p className="text-zinc-400 text-xs leading-relaxed pt-1 border-t border-zinc-900">
-                        {exp.description}
-                      </p>
-                    )}
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-400 mb-1">
+                        Periode Kerja
+                      </label>
+                      <input
+                        type="text"
+                        value={expForm.period}
+                        onChange={(e) => setExpForm({ ...expForm, period: e.target.value })}
+                        placeholder="Contoh: 2022 - Sekarang (2 Tahun) atau Jan 2021 - Des 2023"
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-200 focus:outline-none focus:border-zinc-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-400 mb-1">
+                        Deskripsi Tanggung Jawab & Pencapaian
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={expForm.description}
+                        onChange={(e) => setExpForm({ ...expForm, description: e.target.value })}
+                        placeholder="Jelaskan peran utama, teknologi yang digunakan, serta pencapaian terukur yang relevan untuk ATS..."
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-200 focus:outline-none focus:border-zinc-500 leading-relaxed resize-none"
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2 pt-1 border-t border-zinc-800">
+                      <button
+                        type="button"
+                        onClick={handleCancelExp}
+                        className="px-3 py-1.5 text-xs font-medium text-zinc-400 hover:text-white bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-lg transition-colors"
+                      >
+                        Batal
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSaveExp}
+                        disabled={!expForm.role.trim() || !expForm.company.trim()}
+                        className="px-4 py-1.5 text-xs font-semibold bg-white hover:bg-zinc-200 text-black rounded-lg transition-colors flex items-center gap-1.5 disabled:opacity-50 shadow-xs"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>{isAddingExp ? 'Tambahkan ke Profil' : 'Simpan Perubahan'}</span>
+                      </button>
+                    </div>
                   </div>
-                ))
-              )}
-            </div>
+                )}
+
+                {/* Experience Cards Listing */}
+                <div className="space-y-3">
+                  {candidate.experience.length === 0 ? (
+                    <div className="text-center py-6 bg-black rounded-lg border border-zinc-900 text-xs text-zinc-500">
+                      Belum ada riwayat pengalaman kerja. Lampirkan berkas CV untuk otomatis mengekstrak riwayat pekerjaan.
+                    </div>
+                  ) : (
+                    candidate.experience.map((exp, idx) => (
+                      <div
+                        key={idx}
+                        className="bg-black p-3.5 sm:p-4 rounded-lg border border-zinc-800 hover:border-zinc-700 transition-colors space-y-2 group"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="space-y-0.5 flex-1 min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h4 className="font-semibold text-white text-xs sm:text-sm truncate">
+                                {exp.role}
+                              </h4>
+                              <span className="text-zinc-500 text-xs">di</span>
+                              <span className="text-zinc-300 font-medium text-xs">
+                                {exp.company}
+                              </span>
+                            </div>
+                            <span className="text-zinc-500 font-mono text-[11px] block">
+                              {exp.period}
+                            </span>
+                          </div>
+
+                          {/* Action buttons (Edit & Delete) */}
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleStartEditExp(idx)}
+                              className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-900 rounded transition-colors"
+                              title="Edit pengalaman ini"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteExp(idx)}
+                              className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-900 rounded transition-colors"
+                              title="Hapus pengalaman ini"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {exp.description && (
+                          <p className="text-zinc-400 text-xs leading-relaxed pt-1 border-t border-zinc-900">
+                            {exp.description}
+                          </p>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </>
+            )}
           </div>
 
           {/* Education list with interactive CRUD */}
@@ -1266,10 +1459,17 @@ export const ProfileVault: React.FC<ProfileVaultProps> = ({
               <h3 className="text-sm font-semibold text-white flex items-center gap-2">
                 <GraduationCap className="w-4 h-4 text-zinc-400" />
                 <span>Riwayat Pendidikan</span>
-                <span className="text-xs text-zinc-400 font-mono">({candidate.education.length})</span>
+                {candidate.resumeFileName && !isExtracting && (
+                  <span className="text-[10px] text-zinc-400 font-mono bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800">
+                    Dari CV
+                  </span>
+                )}
+                <span className="text-xs text-zinc-400 font-mono">
+                  {isExtracting ? '(Memproses...)' : `(${candidate.education.length})`}
+                </span>
               </h3>
 
-              {!isAddingEdu && editingEduIndex === null && (
+              {!isExtracting && !isAddingEdu && editingEduIndex === null && (
                 <button
                   type="button"
                   onClick={handleStartAddEdu}
@@ -1281,132 +1481,141 @@ export const ProfileVault: React.FC<ProfileVaultProps> = ({
               )}
             </div>
 
-            {/* Education Add/Edit Form */}
-            {(isAddingEdu || editingEduIndex !== null) && (
-              <div className="bg-black border border-zinc-700 rounded-xl p-4 sm:p-5 space-y-3.5 animate-in fade-in duration-150">
-                <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
-                  <h4 className="text-xs font-semibold text-white uppercase tracking-wider">
-                    {isAddingEdu ? 'Tambah Pendidikan Baru' : 'Edit Riwayat Pendidikan'}
-                  </h4>
-                  <button
-                    type="button"
-                    onClick={handleCancelEdu}
-                    className="text-zinc-400 hover:text-white p-1 rounded hover:bg-zinc-900"
-                    title="Batal"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div className="sm:col-span-2">
-                    <label className="block text-xs font-medium text-zinc-400 mb-1">
-                      Gelar / Program Studi <span className="text-white">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={eduForm.degree}
-                      onChange={(e) => setEduForm({ ...eduForm, degree: e.target.value })}
-                      placeholder="Contoh: S1 Teknik Informatika / Ilmu Komputer"
-                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-200 focus:outline-none focus:border-zinc-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-zinc-400 mb-1">
-                      Tahun Kelulusan
-                    </label>
-                    <input
-                      type="text"
-                      value={eduForm.graduationYear}
-                      onChange={(e) => setEduForm({ ...eduForm, graduationYear: e.target.value })}
-                      placeholder="Contoh: 2021"
-                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-200 focus:outline-none focus:border-zinc-500 font-mono"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-zinc-400 mb-1">
-                    Nama Institusi / Universitas <span className="text-white">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={eduForm.institution}
-                    onChange={(e) => setEduForm({ ...eduForm, institution: e.target.value })}
-                    placeholder="Contoh: Universitas Indonesia (UI) atau Institut Teknologi Bandung (ITB)"
-                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-200 focus:outline-none focus:border-zinc-500"
-                  />
-                </div>
-
-                <div className="flex items-center justify-end gap-2 pt-1 border-t border-zinc-800">
-                  <button
-                    type="button"
-                    onClick={handleCancelEdu}
-                    className="px-3 py-1.5 text-xs font-medium text-zinc-400 hover:text-white bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-lg transition-colors"
-                  >
-                    Batal
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleSaveEdu}
-                    disabled={!eduForm.degree.trim() || !eduForm.institution.trim()}
-                    className="px-4 py-1.5 text-xs font-semibold bg-white hover:bg-zinc-200 text-black rounded-lg transition-colors flex items-center gap-1.5 disabled:opacity-50 shadow-xs"
-                  >
-                    <Check className="w-3.5 h-3.5" />
-                    <span>{isAddingEdu ? 'Tambahkan ke Profil' : 'Simpan Perubahan'}</span>
-                  </button>
-                </div>
+            {isExtracting ? (
+              <div className="p-4 bg-black rounded-lg border border-zinc-800/80 text-xs text-zinc-400 flex items-center gap-3">
+                <div className="w-4 h-4 border-2 border-zinc-500 border-t-white rounded-full animate-spin shrink-0" />
+                <span>Sedang mengekstrak riwayat pendidikan dari isi CV... Data dikosongkan sementara.</span>
               </div>
-            )}
-
-            {/* Education Cards Listing */}
-            <div className="space-y-2.5">
-              {candidate.education.length === 0 ? (
-                <div className="text-center py-6 bg-black rounded-lg border border-zinc-900 text-xs text-zinc-500">
-                  Belum ada riwayat pendidikan. Klik Tambah Pendidikan di atas untuk melengkapi.
-                </div>
-              ) : (
-                candidate.education.map((edu, idx) => (
-                  <div
-                    key={idx}
-                    className="bg-black p-3.5 rounded-lg border border-zinc-800 hover:border-zinc-700 transition-colors flex items-center justify-between gap-3 text-xs group"
-                  >
-                    <div className="space-y-0.5 flex-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-semibold text-white truncate">{edu.degree}</span>
-                        {edu.graduationYear && (
-                          <span className="text-zinc-500 font-mono text-[11px] bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800">
-                            Lulus {edu.graduationYear}
-                          </span>
-                        )}
-                      </div>
-                      <span className="text-zinc-400 block truncate">{edu.institution}</span>
-                    </div>
-
-                    {/* Action buttons (Edit & Delete) */}
-                    <div className="flex items-center gap-1 shrink-0">
+            ) : (
+              <>
+                {/* Education Add/Edit Form */}
+                {(isAddingEdu || editingEduIndex !== null) && (
+                  <div className="bg-black border border-zinc-700 rounded-xl p-4 sm:p-5 space-y-3.5 animate-in fade-in duration-150">
+                    <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
+                      <h4 className="text-xs font-semibold text-white uppercase tracking-wider">
+                        {isAddingEdu ? 'Tambah Pendidikan Baru' : 'Edit Riwayat Pendidikan'}
+                      </h4>
                       <button
                         type="button"
-                        onClick={() => handleStartEditEdu(idx)}
-                        className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-900 rounded transition-colors"
-                        title="Edit pendidikan ini"
+                        onClick={handleCancelEdu}
+                        className="text-zinc-400 hover:text-white p-1 rounded hover:bg-zinc-900"
+                        title="Batal"
                       >
-                        <Pencil className="w-3.5 h-3.5" />
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div className="sm:col-span-2">
+                        <label className="block text-xs font-medium text-zinc-400 mb-1">
+                          Gelar / Program Studi <span className="text-white">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={eduForm.degree}
+                          onChange={(e) => setEduForm({ ...eduForm, degree: e.target.value })}
+                          placeholder="Contoh: S1 Teknik Informatika / Ilmu Komputer"
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-200 focus:outline-none focus:border-zinc-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-zinc-400 mb-1">
+                          Tahun Kelulusan
+                        </label>
+                        <input
+                          type="text"
+                          value={eduForm.graduationYear}
+                          onChange={(e) => setEduForm({ ...eduForm, graduationYear: e.target.value })}
+                          placeholder="Contoh: 2021"
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-200 focus:outline-none focus:border-zinc-500 font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-400 mb-1">
+                        Nama Institusi / Universitas <span className="text-white">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={eduForm.institution}
+                        onChange={(e) => setEduForm({ ...eduForm, institution: e.target.value })}
+                        placeholder="Contoh: Universitas Indonesia (UI) atau Institut Teknologi Bandung (ITB)"
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-200 focus:outline-none focus:border-zinc-500"
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2 pt-1 border-t border-zinc-800">
+                      <button
+                        type="button"
+                        onClick={handleCancelEdu}
+                        className="px-3 py-1.5 text-xs font-medium text-zinc-400 hover:text-white bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-lg transition-colors"
+                      >
+                        Batal
                       </button>
                       <button
                         type="button"
-                        onClick={() => handleDeleteEdu(idx)}
-                        className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-900 rounded transition-colors"
-                        title="Hapus pendidikan ini"
+                        onClick={handleSaveEdu}
+                        disabled={!eduForm.degree.trim() || !eduForm.institution.trim()}
+                        className="px-4 py-1.5 text-xs font-semibold bg-white hover:bg-zinc-200 text-black rounded-lg transition-colors flex items-center gap-1.5 disabled:opacity-50 shadow-xs"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Check className="w-3.5 h-3.5" />
+                        <span>{isAddingEdu ? 'Tambahkan ke Profil' : 'Simpan Perubahan'}</span>
                       </button>
                     </div>
                   </div>
-                ))
-              )}
-            </div>
+                )}
+
+                {/* Education Cards Listing */}
+                <div className="space-y-2.5">
+                  {candidate.education.length === 0 ? (
+                    <div className="text-center py-6 bg-black rounded-lg border border-zinc-900 text-xs text-zinc-500">
+                      Belum ada riwayat pendidikan. Lampirkan berkas CV untuk otomatis mengekstrak riwayat pendidikan.
+                    </div>
+                  ) : (
+                    candidate.education.map((edu, idx) => (
+                      <div
+                        key={idx}
+                        className="bg-black p-3.5 rounded-lg border border-zinc-800 hover:border-zinc-700 transition-colors flex items-center justify-between gap-3 text-xs group"
+                      >
+                        <div className="space-y-0.5 flex-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-semibold text-white truncate">{edu.degree}</span>
+                            {edu.graduationYear && (
+                              <span className="text-zinc-500 font-mono text-[11px] bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800">
+                                Lulus {edu.graduationYear}
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-zinc-400 block truncate">{edu.institution}</span>
+                        </div>
+
+                        {/* Action buttons (Edit & Delete) */}
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleStartEditEdu(idx)}
+                            className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-900 rounded transition-colors"
+                            title="Edit pendidikan ini"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteEdu(idx)}
+                            className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-900 rounded transition-colors"
+                            title="Hapus pendidikan ini"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </>
+            )}
           </div>
 
           {/* Save Action */}

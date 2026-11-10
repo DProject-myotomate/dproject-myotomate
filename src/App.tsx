@@ -111,13 +111,24 @@ export default function App() {
       userCandidate = createEmptyCandidate(userId, userName, userEmail);
     }
 
-    // Never auto-attach a CV. A CV is only attached when the user has manually uploaded it.
-    if (userCandidate) {
-      const hasManuallyUploaded = localStorage.getItem(`autolamar_manual_cv_${userId}`) === 'true';
-      if (!hasManuallyUploaded) {
-        userCandidate.resumeFileName = undefined;
-        userCandidate.resumeFileSize = undefined;
-      }
+    // KETENTUAN: Data profil (Identitas & Kontak Utama, Keahlian, Riwayat, dsb.)
+    // diambil dari CV yang sudah dilampirkan. Jika belum melampirkan CV, data profil kosong.
+    if (userCandidate && !userCandidate.resumeFileName) {
+      userCandidate.fullName = '';
+      userCandidate.email = '';
+      userCandidate.phone = '';
+      userCandidate.location = '';
+      userCandidate.primaryRole = '';
+      userCandidate.experienceYears = 0;
+      userCandidate.expectedSalary = '';
+      userCandidate.availability = '';
+      userCandidate.linkedin = '';
+      userCandidate.github = '';
+      userCandidate.portfolio = '';
+      userCandidate.summary = '';
+      userCandidate.skills = [];
+      userCandidate.experience = [];
+      userCandidate.education = [];
     }
 
     // 2. Applications Tracker

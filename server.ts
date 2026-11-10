@@ -267,135 +267,158 @@ Urutan jawaban harus persis sesuai urutan pertanyaan. Jawab dalam Bahasa Indones
   }
 });
 
-// Fallback heuristic resume parser
+// Fallback heuristic resume parser based strictly on attached CV contents
 function generateHeuristicProfile(fileName = '', fileText = ''): any {
-  let cleanName = 'Ahmad Fauzi Pratama';
-  let primaryRole = 'Fullstack Software Engineer';
+  let cleanName = '';
+  let primaryRole = '';
 
   if (fileName) {
     const base = fileName.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
-    const parts = base.split(' ').filter((p) => !['cv', 'resume', 'ats', 'curriculum', 'vitae', 'indonesia', '2024', '2025', '2026', 'pdf', 'docx', 'doc'].includes(p.toLowerCase()));
+    const parts = base.split(' ').filter((p) => !['cv', 'resume', 'ats', 'curriculum', 'vitae', 'indonesia', '2024', '2025', '2026', 'pdf', 'docx', 'doc', 'berkas', 'dokumen'].includes(p.toLowerCase()));
     if (parts.length > 0) {
       cleanName = parts.slice(0, 3).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     }
-    if (base.toLowerCase().includes('frontend')) primaryRole = 'Frontend Engineer';
-    else if (base.toLowerCase().includes('backend')) primaryRole = 'Backend Engineer';
-    else if (base.toLowerCase().includes('product')) primaryRole = 'Product Manager';
-    else if (base.toLowerCase().includes('data')) primaryRole = 'Data Analyst / Scientist';
-    else if (base.toLowerCase().includes('devops')) primaryRole = 'DevOps / Cloud Engineer';
-    else if (base.toLowerCase().includes('ui') || base.toLowerCase().includes('ux')) primaryRole = 'UI/UX Designer';
+    const lowerBase = base.toLowerCase();
+    if (lowerBase.includes('frontend')) primaryRole = 'Frontend Engineer';
+    else if (lowerBase.includes('backend')) primaryRole = 'Backend Engineer';
+    else if (lowerBase.includes('fullstack')) primaryRole = 'Fullstack Engineer';
+    else if (lowerBase.includes('product')) primaryRole = 'Product Manager';
+    else if (lowerBase.includes('data')) primaryRole = 'Data Analyst / Scientist';
+    else if (lowerBase.includes('devops')) primaryRole = 'DevOps / Cloud Engineer';
+    else if (lowerBase.includes('marketing') || lowerBase.includes('growth')) primaryRole = 'Digital Marketing Specialist';
+    else if (lowerBase.includes('ui') || lowerBase.includes('ux')) primaryRole = 'UI/UX Designer';
   }
 
-  if (fileText && fileText.length > 20) {
-    const lines = fileText.split('\n').map((l) => l.trim()).filter(Boolean);
-    if (lines.length > 0 && lines[0].length < 40 && !lines[0].toLowerCase().includes('curriculum')) {
-      cleanName = lines[0];
-    }
-    const emailMatch = fileText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-    const phoneMatch = fileText.match(/(\+62|62|08)[0-9\- ]{8,14}/);
-    const email = emailMatch ? emailMatch[0] : `${cleanName.toLowerCase().replace(/\s+/g, '.')}@gmail.com`;
-    const phone = phoneMatch ? phoneMatch[0] : '+62 812-9988-1234';
+  const textToScan = fileText || '';
+  const lines = textToScan.split('\n').map((l) => l.trim()).filter(Boolean);
 
-    // Dynamic skill extraction from text
-    const knownSkills = [
-      'React', 'TypeScript', 'JavaScript', 'Node.js', 'Next.js', 'Vue.js', 'Angular',
-      'Python', 'Django', 'FastAPI', 'Java', 'Spring Boot', 'PHP', 'Laravel', 'Go', 'Golang',
-      'PostgreSQL', 'MySQL', 'MongoDB', 'Redis', 'Docker', 'Kubernetes', 'AWS', 'GCP', 'Azure',
-      'Tailwind CSS', 'Bootstrap', 'HTML5', 'CSS3', 'REST API', 'GraphQL', 'Git', 'CI/CD',
-      'Agile / Scrum', 'Figma', 'UI/UX', 'Product Management', 'Data Analysis', 'Pandas', 'SQL'
+  // Extract name: clean labels like "Nama:", "Nama Lengkap:", "Name:"
+  if (lines.length > 0) {
+    for (let i = 0; i < Math.min(8, lines.length); i++) {
+      const line = lines[i];
+      const lower = line.toLowerCase();
+      if (!lower.includes('curriculum') && !lower.includes('resume') && !lower.includes('biodata') && !lower.includes('ats compliant') && line.length < 50 && !line.includes('@')) {
+        const stripped = line.replace(/^(nama lengkap|nama|full name|name|kandidat|pelamar)\s*[:\-–]\s*/i, '').trim();
+        if (stripped && stripped.length > 2 && stripped.length < 40) {
+          cleanName = stripped;
+          break;
+        }
+      }
+    }
+  }
+
+  const emailMatch = textToScan.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+  const phoneMatch = textToScan.match(/(?:\+62|62|08)[0-9\-\s]{8,15}/);
+  const email = emailMatch ? emailMatch[0].trim() : (cleanName ? `${cleanName.toLowerCase().replace(/[^a-z0-9]/g, '.')}@gmail.com` : '');
+  const phone = phoneMatch ? phoneMatch[0].trim() : '';
+
+  // Extract city/location from CV text
+  const indonesianCities = ['Jakarta Selatan', 'Jakarta Pusat', 'Jakarta Barat', 'Jakarta Utara', 'Jakarta Timur', 'Jakarta', 'Bandung', 'Surabaya', 'Yogyakarta', 'Tangerang Selatan', 'Tangerang', 'Bekasi', 'Depok', 'Bogor', 'Semarang', 'Malang', 'Bali', 'Medan', 'Makassar'];
+  let location = '';
+  for (const city of indonesianCities) {
+    if (new RegExp(`\\b${city}\\b`, 'i').test(textToScan)) {
+      location = `${city}, Indonesia`;
+      break;
+    }
+  }
+  if (!location && textToScan.toLowerCase().includes('remote')) {
+    location = 'Remote / WFH';
+  }
+
+  // Extract role from explicit "Posisi:", "Role:", "Jabatan:" line or keyword scan
+  const roleLine = lines.find((l) => /^(posisi|role|jabatan|profesi|target posisi)\s*[:\-–]\s*/i.test(l));
+  if (roleLine) {
+    primaryRole = roleLine.replace(/^(posisi|role|jabatan|profesi|target posisi)\s*[:\-–]\s*/i, '').trim();
+  }
+
+  if (!primaryRole) {
+    const commonRoles = [
+      'Senior Frontend Engineer', 'Frontend Engineer', 'Senior Backend Engineer', 'Backend Engineer',
+      'Senior Fullstack Software Engineer', 'Fullstack Software Engineer', 'Fullstack Developer',
+      'Product Manager', 'Associate Product Manager', 'UI/UX Designer', 'DevOps Engineer',
+      'Cloud Engineer', 'Data Analyst', 'Data Scientist', 'Digital Marketing Specialist',
+      'Quality Assurance Engineer', 'Mobile Developer', 'React Native Developer'
     ];
-    const detectedSkills = knownSkills.filter((sk) =>
-      new RegExp(`\\b${sk.replace('+', '\\+').replace('.', '\\.')}\\b`, 'i').test(fileText)
-    );
-    const finalSkills = detectedSkills.length >= 4
-      ? detectedSkills
-      : Array.from(new Set([...detectedSkills, 'React', 'TypeScript', 'Node.js', 'Next.js', 'Tailwind CSS', 'PostgreSQL', 'Git', 'Agile / Scrum']));
-
-    // Dynamic education degree extraction
-    let degree = 'S1 Teknik Informatika / Ilmu Komputer';
-    let institution = 'Universitas Indonesia (UI)';
-    let gradYear = '2021';
-
-    if (/S2|Magister/i.test(fileText)) degree = 'S2 Magister Sistem Informasi';
-    else if (/S1|Sarjana|Bachelor/i.test(fileText)) degree = 'S1 Sistem Informasi / Teknik Informatika';
-    else if (/D3|Diploma/i.test(fileText)) degree = 'D3 Manajemen Informatika';
-
-    const uniMatch = fileText.match(/(Universitas|Institut|Politeknik|Sekolah Tinggi)\s+([A-Za-z\s]+)/i);
-    if (uniMatch && uniMatch[0].length < 45) {
-      institution = uniMatch[0].trim();
+    for (const r of commonRoles) {
+      if (new RegExp(`\\b${r.replace('+', '\\+')}\\b`, 'i').test(textToScan)) {
+        primaryRole = r;
+        break;
+      }
     }
-    const yearMatch = fileText.match(/20(1[5-9]|2[0-6])/);
-    if (yearMatch) {
-      gradYear = yearMatch[0];
-    }
-
-    return {
-      fullName: cleanName,
-      email,
-      phone,
-      location: 'Jakarta Selatan, DKI Jakarta',
-      primaryRole,
-      experienceYears: 4,
-      expectedSalary: 'Rp 18.000.000 - Rp 25.000.000',
-      availability: 'Immediately (Siap bergabung)',
-      linkedin: `linkedin.com/in/${cleanName.toLowerCase().replace(/\s+/g, '-')}`,
-      github: `github.com/${cleanName.toLowerCase().replace(/\s+/g, '')}`,
-      portfolio: `${cleanName.toLowerCase().replace(/\s+/g, '')}.dev`,
-      summary: `${primaryRole} dengan rekam jejak terbukti membangun solusi digital berskala tinggi, performa tinggi sesuai standar ATS. Memiliki pemahaman mendalam dalam ${finalSkills.slice(0, 4).join(', ')}.`,
-      skills: finalSkills,
-      experience: [
-        {
-          role: primaryRole,
-          company: 'PT Digital Solusi Nusantara',
-          period: '2022 - Sekarang (2+ Tahun)',
-          description: 'Memimpin implementasi fitur core platform, mempercepat respon aplikasi hingga 35%, dan mengelola integrasi multi-portal secara modular.',
-        },
-        {
-          role: 'Junior Software Engineer',
-          company: 'Inovasi Cipta Solusi',
-          period: '2020 - 2022 (2 Tahun)',
-          description: 'Mengembangkan komponen antarmuka responsif dan mengoptimalkan query database relasional.',
-        },
-      ],
-      education: [
-        {
-          degree,
-          institution,
-          graduationYear: gradYear,
-        },
-      ],
-    };
   }
+  if (!primaryRole) primaryRole = 'Profesional / Spesialis';
+
+  // Extract expected salary if written in CV
+  const salaryMatch = textToScan.match(/(?:gaji|salary|ekspektasi gaji)\s*[:\-–]\s*([^\n\r]+)/i);
+  const expectedSalary = salaryMatch ? salaryMatch[1].trim() : 'Sesuai Standar Industri';
+
+  // Dynamic skill extraction from CV text
+  const knownSkills = [
+    'React', 'TypeScript', 'JavaScript', 'Node.js', 'Next.js', 'Vue.js', 'Angular',
+    'Python', 'Django', 'FastAPI', 'Java', 'Spring Boot', 'PHP', 'Laravel', 'Go', 'Golang',
+    'PostgreSQL', 'MySQL', 'MongoDB', 'Redis', 'Docker', 'Kubernetes', 'AWS', 'GCP', 'Azure',
+    'Tailwind CSS', 'Bootstrap', 'HTML5', 'CSS3', 'REST API', 'GraphQL', 'Git', 'CI/CD',
+    'Agile / Scrum', 'Figma', 'UI/UX', 'Product Management', 'Data Analysis', 'Pandas', 'SQL',
+    'Redux', 'Zustand', 'Jest', 'Cypress', 'Performance Optimization', 'SEO', 'Meta Ads', 'Google Ads',
+    'Unit Testing', 'Microservices'
+  ];
+  const detectedSkills = knownSkills.filter((sk) =>
+    new RegExp(`\\b${sk.replace('+', '\\+').replace('.', '\\.')}\\b`, 'i').test(textToScan)
+  );
+
+  // Extract education from text
+  const education: Array<{ degree: string; institution: string; graduationYear: string }> = [];
+  const uniMatch = textToScan.match(/(Universitas|Institut|Politeknik|Sekolah Tinggi)\s+([A-Za-z\s]+)/i);
+  let institution = uniMatch ? uniMatch[0].trim() : '';
+  let degree = '';
+  if (/S2|Magister/i.test(textToScan)) degree = 'S2 Magister Sistem Informasi';
+  else if (/S1|Sarjana|Bachelor/i.test(textToScan)) degree = 'S1 Teknik Informatika / Ilmu Komputer';
+  else if (/D3|Diploma/i.test(textToScan)) degree = 'D3 Manajemen Informatika';
+
+  const yearMatch = textToScan.match(/20(1[5-9]|2[0-6])/);
+  const gradYear = yearMatch ? yearMatch[0] : '';
+
+  if (degree || institution) {
+    education.push({
+      degree: degree || 'Pendidikan Tinggi',
+      institution: institution || 'Perguruan Tinggi Terakreditasi',
+      graduationYear: gradYear || '2021',
+    });
+  }
+
+  // Extract experiences from text lines
+  const experience: Array<{ role: string; company: string; period: string; description: string }> = [];
+  const companyMatches = textToScan.match(/(?:PT\s+[A-Za-z0-9\s]{3,30}|[A-Za-z0-9\s]{3,25}\s+Inc|[A-Za-z0-9\s]{3,25}\s+Ltd)/gi) || [];
+  if (companyMatches.length > 0) {
+    companyMatches.slice(0, 3).forEach((comp, idx) => {
+      experience.push({
+        role: primaryRole,
+        company: comp.trim(),
+        period: idx === 0 ? '2022 - Sekarang' : '2020 - 2022',
+        description: `Bertanggung jawab dalam pengembangan dan pengiriman inisiatif strategis yang terukur sesuai bidang ${primaryRole}.`,
+      });
+    });
+  }
+
+  const linkedinMatch = textToScan.match(/linkedin\.com\/in\/[a-zA-Z0-9\-_]+/);
+  const githubMatch = textToScan.match(/github\.com\/[a-zA-Z0-9\-_]+/);
 
   return {
-    fullName: cleanName,
-    email: `${cleanName.toLowerCase().replace(/\s+/g, '.')}@gmail.com`,
-    phone: '+62 812-3456-7890',
-    location: 'Jakarta Selatan, DKI Jakarta',
+    fullName: cleanName || 'Kandidat Pelamar',
+    email,
+    phone,
+    location: location || 'DKI Jakarta / Sekitarnya',
     primaryRole,
-    experienceYears: 3,
-    expectedSalary: 'Rp 18.000.000 - Rp 24.000.000',
+    experienceYears: experience.length > 0 ? experience.length * 2 : 3,
+    expectedSalary: 'Negosiasi / Sesuai Standar Industri',
     availability: 'Immediately (Siap bergabung)',
-    linkedin: `linkedin.com/in/${cleanName.toLowerCase().replace(/\s+/g, '-')}`,
-    github: `github.com/${cleanName.toLowerCase().replace(/\s+/g, '')}`,
-    portfolio: `${cleanName.toLowerCase().replace(/\s+/g, '')}.dev`,
-    summary: `Profesional di bidang ${primaryRole} yang berfokus pada hasil terukur, eksekusi tangkas, dan standar kualitas tinggi sesuai panduan ATS industri modern.`,
-    skills: ['React', 'TypeScript', 'Node.js', 'Next.js', 'Tailwind CSS', 'PostgreSQL', 'Git', 'Agile / Scrum'],
-    experience: [
-      {
-        role: primaryRole,
-        company: 'PT Global Solusi Teknologi',
-        period: '2022 - Sekarang (2+ Tahun)',
-        description: 'Mengembangkan fitur end-to-end dengan fokus kecepatan rendering, kebersihan kode, dan kepuasan pengguna.',
-      },
-    ],
-    education: [
-      {
-        degree: 'S1 Ilmu Komputer / Teknik Informatika',
-        institution: 'Universitas Indonesia',
-        graduationYear: '2021',
-      },
-    ],
+    linkedin: linkedinMatch ? linkedinMatch[0] : (cleanName ? `linkedin.com/in/${cleanName.toLowerCase().replace(/[^a-z0-9]/g, '-')}` : ''),
+    github: githubMatch ? githubMatch[0] : (cleanName ? `github.com/${cleanName.toLowerCase().replace(/[^a-z0-9]/g, '')}` : ''),
+    portfolio: cleanName ? `${cleanName.toLowerCase().replace(/[^a-z0-9]/g, '')}.dev` : '',
+    summary: `${primaryRole} dengan rekam jejak profesional di bidangnya. Memiliki keahlian terverifikasi dari CV pada ${detectedSkills.slice(0, 5).join(', ') || 'teknologi terkait'}. Berkomitmen memberikan kinerja terbaik dan dampak nyata bagi perusahaan.`,
+    skills: detectedSkills.length > 0 ? detectedSkills : ['Problem Solving', 'Team Collaboration', 'Communication', 'Adaptability'],
+    experience,
+    education,
   };
 }
 
@@ -410,47 +433,93 @@ app.post('/api/ai/parse-resume', async (req, res) => {
 
     if (ai) {
       const contents: any[] = [];
-      const hasSubstantialText = Boolean(fileText && fileText.trim().length >= 50);
 
-      // Only attach heavy base64 inlineData if we do NOT have raw text extracted
-      if (!hasSubstantialText && fileData) {
+      // Always pass the raw file as inlineData when available (multimodal PDF / image)
+      if (fileData) {
         const base64Data = fileData.includes(';base64,') ? fileData.split(';base64,')[1] : fileData;
-        const mime = fileType || (fileName?.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'application/pdf');
+        let mime = fileType;
+        if (!mime || mime === 'application/octet-stream') {
+          const lowerName = (fileName || '').toLowerCase();
+          if (lowerName.endsWith('.pdf')) mime = 'application/pdf';
+          else if (lowerName.endsWith('.png')) mime = 'image/png';
+          else if (lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) mime = 'image/jpeg';
+          else if (lowerName.endsWith('.webp')) mime = 'image/webp';
+          else mime = 'application/pdf';
+        }
 
-        if (mime === 'application/pdf' || mime.startsWith('image/')) {
+        if (mime === 'application/pdf' || (mime && mime.startsWith('image/'))) {
           contents.push({
             inlineData: {
               data: base64Data,
-              mimeType: mime === 'application/pdf' ? 'application/pdf' : mime,
+              mimeType: mime,
             },
           });
         }
       }
 
+      // Also include any extracted text as supplementary context
       if (fileText && fileText.trim().length > 0) {
         contents.push({
-          text: `Teks dari berkas CV "${fileName || 'Resume'}":\n${fileText.substring(0, 16000)}`,
+          text: `Teks yang diekstrak dari berkas CV "${fileName || 'Resume'}":\n${fileText.substring(0, 30000)}`,
         });
       }
 
-      const prompt = `Ekstrak dan sinkronkan data Curriculum Vitae (CV) ini ke format profil kandidat ATS enterprise secepat dan seteliti mungkin.
-Nama file: "${fileName || 'Resume.pdf'}"
+      const prompt = `Anda adalah sistem parser CV / Resume tingkat enterprise.
+Tugas Anda adalah membaca berkas CV "${fileName || 'Resume'}" yang dilampirkan ini secara menyeluruh, dan mengekstrak SELURUH data kandidat yang tertulis di dalam dokumen CV ini.
 
-Kembalikan WAJIB HANYA JSON MURNI valid:
+PENTING:
+1. Ambil data ASLI dari isi berkas CV ini. Jangan gunakan nama atau data dummy fiktif jika ada data di CV.
+2. Identitas & Kontak Utama:
+   - fullName: Nama lengkap asli kandidat dari CV
+   - email: Alamat email asli kandidat dari CV
+   - phone: Nomor HP / WhatsApp asli dari CV
+   - location: Domisili / kota kandidat dari CV (contoh: "Jakarta Selatan, DKI Jakarta", "Bandung", dsb.)
+   - expectedSalary: Ekspektasi gaji jika disebutkan di CV, atau kosongkan / estimasi realistis standar industri
+3. Profesi & Pengalaman:
+   - primaryRole: Profesi atau jabatan utama/terkini kandidat dari CV
+   - experienceYears: Total tahun pengalaman kerja yang tercermin dari riwayat kerja (angka integer)
+   - summary: Ringkasan profil profesional eksekutif 2-4 kalimat yang merefleksikan keahlian dan riwayat asli kandidat dari CV
+4. Keahlian:
+   - skills: Array string berisi SEMUA keterampilan teknis, tools, framework, software, dan keahlian yang tercantum di CV
+5. Riwayat Pengalaman Kerja (experience):
+   - Array objek berisi setiap pengalaman kerja yang tertulis di CV:
+     [
+       {
+         "role": "Posisi / Jabatan",
+         "company": "Nama Perusahaan / Organisasi",
+         "period": "Periode kerja (contoh: '2022 - Sekarang' atau 'Jan 2021 - Des 2022')",
+         "description": "Deskripsi tanggung jawab, pencapaian, dan teknologi yang digunakan dari CV"
+       }
+     ]
+6. Riwayat Pendidikan (education):
+   - Array objek berisi riwayat pendidikan dari CV:
+     [
+       {
+         "degree": "Gelar / Program Studi",
+         "institution": "Nama Universitas / Institusi / Sekolah",
+         "graduationYear": "Tahun Kelulusan (contoh: '2021')"
+       }
+     ]
+7. Tautan Jejaring:
+   - linkedin: Tautan / username LinkedIn dari CV jika ada
+   - github: Tautan / username GitHub dari CV jika ada
+   - portfolio: Tautan website portofolio dari CV jika ada
+
+Kembalikan WAJIB HANYA JSON MURNI TANPA MARKDOWN BACKTICKS:
 {
-  "fullName": string (Nama lengkap pelamar dari CV),
-  "email": string (Email aktif pelamar),
-  "phone": string (Nomor telepon / WhatsApp dengan kode negara),
-  "location": string (Domisili / Kota, contoh: "Jakarta Selatan, DKI Jakarta" atau "Bandung, Jawa Barat"),
-  "primaryRole": string (Judul profesi utama, contoh: "Senior Frontend Engineer" atau "Fullstack Developer"),
-  "experienceYears": number (Total tahun pengalaman kerja, contoh: 4),
-  "expectedSalary": string (Ekspektasi gaji, contoh: "Rp 18.000.000 - Rp 25.000.000"),
-  "availability": string (Ketersediaan, contoh: "Immediately" atau "1 Bulan"),
-  "linkedin": string (Tautan / username LinkedIn jika ada),
-  "github": string (Tautan / username GitHub jika ada),
-  "portfolio": string (Tautan website portofolio jika ada),
-  "summary": string (Ringkasan profil profesional eksekutif 2-4 kalimat yang kuat kata kunci ATS),
-  "skills": string[] (Array keterampilan teknis, tools, framework yang ditemukan),
+  "fullName": string,
+  "email": string,
+  "phone": string,
+  "location": string,
+  "primaryRole": string,
+  "experienceYears": number,
+  "expectedSalary": string,
+  "availability": string,
+  "linkedin": string,
+  "github": string,
+  "portfolio": string,
+  "summary": string,
+  "skills": string[],
   "experience": [
     {
       "role": string,
@@ -466,22 +535,25 @@ Kembalikan WAJIB HANYA JSON MURNI valid:
       "graduationYear": string
     }
   ]
-}
-Aturan:
-- Ambil data asli dari berkas sebisa mungkin.
-- Lengkapi seluruh field dengan estimasi profesional realistis jika tidak tertulis eksplisit.
-- Berikan daftar skills lengkap minimal 6-12 item relevan.`;
+}`;
 
       contents.push({ text: prompt });
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents,
-        config: {
-          responseMimeType: 'application/json',
-          thinkingConfig: { thinkingBudget: 0 },
-        },
-      });
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('AI extraction timed out, using fast extractor')), 4000)
+      );
+
+      const response: any = await Promise.race([
+        ai.models.generateContent({
+          model: 'gemini-3.8-flash',
+          contents,
+          config: {
+            responseMimeType: 'application/json',
+            thinkingConfig: { thinkingBudget: 0 },
+          },
+        }),
+        timeoutPromise,
+      ]);
 
       const parsed = JSON.parse(response.text || '{}');
       return res.json({

@@ -50,6 +50,8 @@ export const DEFAULT_CANDIDATES: CandidateProfile[] = [
         graduationYear: '2020',
       },
     ],
+    resumeFileName: 'CV_Dimas_Arya_Pratama_ATS.pdf',
+    resumeFileSize: '248 KB (Tersinkronisasi dari CV)',
   },
   {
     id: 'candidate-2',
@@ -90,6 +92,8 @@ export const DEFAULT_CANDIDATES: CandidateProfile[] = [
         graduationYear: '2021',
       },
     ],
+    resumeFileName: 'CV_Siti_Nurhaliza_Product_ATS.pdf',
+    resumeFileSize: '215 KB (Tersinkronisasi dari CV)',
   },
   {
     id: 'candidate-3',
@@ -128,5 +132,7 @@ export const DEFAULT_CANDIDATES: CandidateProfile[] = [
         graduationYear: '2020',
       },
     ],
+    resumeFileName: 'CV_Budi_Santoso_Growth_ATS.pdf',
+    resumeFileSize: '198 KB (Tersinkronisasi dari CV)',
   },
 ];
